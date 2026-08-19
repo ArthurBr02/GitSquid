@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gitia</title>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<a class="skip" href="#graph">Skip to the graph</a>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"></span>
+    <span class="brand-name">gitia</span>
+  </div>
+  <button type="button" class="repo-chip" id="repo-chip" aria-haspopup="dialog"
+    title="Switch repository">
+    <span class="repo-name" id="repo-name">—</span>
+    <span class="branch" id="repo-branch"></span>
+    <span class="chevron" aria-hidden="true">▾</span>
+  </button>
+  <div class="toolbar" role="toolbar" aria-label="Repository actions">
+    <button type="button" class="btn" id="btn-propose" accesskey="n">
+      <span aria-hidden="true">✚</span> New change <kbd>N</kbd>
+    </button>
+    <span class="toolbar-group">
+      <button type="button" class="btn ghost" id="btn-fetch" title="git fetch --all --prune">Fetch</button>
+      <button type="button" class="btn ghost" id="btn-pull" title="git pull --ff-only">
+        Pull <span class="badge" id="badge-behind" hidden></span>
+      </button>
+      <button type="button" class="btn ghost" id="btn-push" title="git push">
+        Push <span class="badge" id="badge-ahead" hidden></span>
+      </button>
+    </span>
+    <button type="button" class="btn ghost" id="btn-index">Re-index <kbd>I</kbd></button>
+    <button type="button" class="btn ghost" id="btn-export">Export</button>
+    <button type="button" class="btn ghost" id="btn-import">Import</button>
+    <button type="button" class="icon-btn" id="btn-help" title="Keyboard shortcuts"
+      aria-label="Keyboard shortcuts" aria-haspopup="dialog">?</button>
+  </div>
+  <div class="model-state" id="model-state" role="status" aria-live="polite"></div>
+</header>
+
+<main class="layout">
+  <nav class="sidebar" aria-label="Filters and repository details">
+    <section class="panel">
+      <h2 class="panel-title">Changes</h2>
+      <ul class="filters" id="filters" role="listbox" aria-label="Filter changes by status"></ul>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-title">Working tree</h2>
+      <button type="button" class="wip-button" id="btn-wip">
+        <span class="wip-label">Uncommitted changes</span>
+        <span class="wip-counts" id="wip-counts"></span>
+      </button>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2 class="panel-title">Branches</h2>
+        <button type="button" class="icon-btn" id="btn-new-branch" title="Create a branch"
+          aria-label="Create a branch">+</button>
+      </div>
+      <ul class="branches" id="branches"></ul>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2 class="panel-title">Stashes</h2>
+        <button type="button" class="icon-btn" id="btn-stash" title="Stash the working tree"
+          aria-label="Stash the working tree">⤓</button>
+      </div>
+      <ul class="stashes" id="stashes"></ul>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-title">Index</h2>
+      <dl class="stats" id="index-stats"></dl>
+      <div class="sample-actions">
+        <button type="button" class="btn tiny ghost" id="btn-sample-load">Load samples</button>
+        <button type="button" class="btn tiny ghost" id="btn-sample-clear">Clear samples</button>
+      </div>
+    </section>
+  </nav>
+
+  <div class="resizer" id="resize-left" role="separator" aria-orientation="vertical"
+    aria-label="Resize the sidebar" tabindex="0"></div>
+
+  <section class="graph-pane" id="graph" aria-label="Change and commit graph" tabindex="-1">
+    <div class="pane-head">
+      <h2>Graph</h2>
+      <label class="search-label" for="search">
+        <span class="visually-hidden">Filter rows</span>
+        <input type="search" id="search" placeholder="Filter by task, message, author…  ( / )" autocomplete="off">
+      </label>
+    </div>
+    <div class="rows-wrap" id="rows-wrap">
+      <svg class="graph-canvas" id="graph-canvas" aria-hidden="true" focusable="false"></svg>
+      <ol class="rows" id="rows" role="listbox" aria-label="Changes and commits" tabindex="0"></ol>
+    </div>
+    <p class="empty-state" id="graph-empty" hidden></p>
+  </section>
+
+  <div class="resizer" id="resize-right" role="separator" aria-orientation="vertical"
+    aria-label="Resize the detail panel" tabindex="0"></div>
+
+  <aside class="detail" id="detail" aria-label="Selected item" tabindex="-1">
+    <div class="empty-state">
+      <h2>Nothing selected</h2>
+      <p>Pick a change or a commit in the graph. Use <kbd>↑</kbd> <kbd>↓</kbd> to move and <kbd>Enter</kbd> to open.</p>
+    </div>
+  </aside>
+</main>
+
+<footer class="statusbar">
+  <span id="status-text" role="status" aria-live="polite">Ready.</span>
+  <span class="spacer"></span>
+  <span class="db-path" id="db-path"></span>
+</footer>
+
+<dialog class="modal" id="propose-modal" aria-labelledby="propose-title">
+  <form method="dialog" id="propose-form">
+    <h2 id="propose-title">Propose a change</h2>
+    <p class="hint" id="propose-hint"></p>
+
+    <label class="field">
+      <span class="field-label">Task <em>required</em></span>
+      <textarea id="propose-task" rows="3" required maxlength="2000"
+        placeholder="Describe the change, e.g. “make period_start timezone-aware”"></textarea>
+    </label>
+
+    <label class="field">
+      <span class="field-label">Unified diff <em id="patch-requirement">optional</em></span>
+      <textarea id="propose-patch" rows="10" spellcheck="false"
+        placeholder="Leave empty to ask the model. Paste a diff to skip the model entirely."></textarea>
+    </label>
+
+    <p class="form-error" id="propose-error" role="alert" hidden></p>
+    <menu class="modal-actions">
+      <button type="button" class="btn ghost" id="propose-cancel">Cancel</button>
+      <button type="submit" class="btn primary" id="propose-submit">Propose</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog class="modal" id="import-modal" aria-labelledby="import-title">
+  <form method="dialog" id="import-form">
+    <h2 id="import-title">Import a gitia export</h2>
+    <p class="hint">Paste the contents of a <code>gitia export</code> JSON file. Changes already recorded are skipped.</p>
+    <label class="field">
+      <span class="field-label">Export document <em>required</em></span>
+      <textarea id="import-doc" rows="12" spellcheck="false" required placeholder='{ "format": "gitia-export", ... }'></textarea>
+    </label>
+    <p class="form-error" id="import-error" role="alert" hidden></p>
+    <menu class="modal-actions">
+      <button type="button" class="btn ghost" id="import-cancel">Cancel</button>
+      <button type="submit" class="btn primary">Import</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog class="modal" id="help-modal" aria-labelledby="help-title">
+  <h2 id="help-title">Keyboard</h2>
+  <dl class="shortcuts">
+    <dt><kbd>N</kbd></dt><dd>Propose a new change</dd>
+    <dt><kbd>O</kbd></dt><dd>Open or add a repository</dd>
+    <dt><kbd>W</kbd></dt><dd>Open the uncommitted changes</dd>
+    <dt><kbd>I</kbd></dt><dd>Re-index the repository</dd>
+    <dt><kbd>/</kbd></dt><dd>Filter the graph</dd>
+    <dt><kbd>↑</kbd> <kbd>↓</kbd> / <kbd>j</kbd> <kbd>k</kbd></dt><dd>Move through the graph</dd>
+    <dt><kbd>Enter</kbd></dt><dd>Focus the detail panel</dd>
+    <dt><kbd>Esc</kbd></dt><dd>Leave a field or close a dialog</dd>
+    <dt><kbd>?</kbd></dt><dd>This dialog</dd>
+  </dl>
+  <menu class="modal-actions">
+    <button type="button" class="btn ghost" id="help-close">Close</button>
+  </menu>
+</dialog>
+
+<dialog class="modal" id="repos-modal" aria-labelledby="repos-title">
+  <h2 id="repos-title">Repositories</h2>
+  <p class="hint">Every repository keeps its own database, its own index, and its own history.</p>
+  <ul class="repo-list" id="repo-list"></ul>
+  <form id="repo-form">
+    <label class="field">
+      <span class="field-label">Add a repository <em id="repo-path-hint">absolute path</em></span>
+      <span class="field-row">
+        <input type="text" id="repo-path" required maxlength="4000"
+          placeholder="/Users/arthur/Projets/mon-projet" autocomplete="off" spellcheck="false">
+        <button type="button" class="btn ghost" id="btn-browse" hidden>Browse…</button>
+      </span>
+    </label>
+    <p class="form-error" id="repo-error" role="alert" hidden></p>
+    <menu class="modal-actions">
+      <button type="button" class="btn ghost" id="repos-close">Close</button>
+      <button type="submit" class="btn primary">Add and open</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog class="modal small" id="branch-modal" aria-labelledby="branch-title">
+  <form method="dialog" id="branch-form">
+    <h2 id="branch-title">Create a branch</h2>
+    <p class="hint">Branches from the current <code id="branch-base">HEAD</code> and switches to it.</p>
+    <label class="field">
+      <span class="field-label">Branch name <em>required</em></span>
+      <input type="text" id="branch-name" required maxlength="200" placeholder="feature/ma-fonctionnalite" autocomplete="off">
+    </label>
+    <p class="form-error" id="branch-error" role="alert" hidden></p>
+    <menu class="modal-actions">
+      <button type="button" class="btn ghost" id="branch-cancel">Cancel</button>
+      <button type="submit" class="btn primary">Create</button>
+    </menu>
+  </form>
+</dialog>
+
+<div class="toasts" id="toasts" aria-live="assertive" aria-atomic="false"></div>
+
+<script src="/assets/graph.js"></script>
+<script src="/assets/app.js"></script>
+</body>
+</html>

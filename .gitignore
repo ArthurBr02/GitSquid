@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.env
+.gitia/
+
+.venv-prod/
+
+# Tauri desktop shell
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+
+.DS_Store

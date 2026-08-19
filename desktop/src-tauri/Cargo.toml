@@ -1,0 +1,22 @@
+[package]
+name = "gitia-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Native desktop shell for gitia."
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# devtools stays on in release: this is a personal local tool, and being able to
+# open the console on the page it hosts is worth more than hiding it.
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-dialog = "2"
+serde_json = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
