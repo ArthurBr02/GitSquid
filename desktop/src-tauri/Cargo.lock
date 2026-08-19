@@ -1085,7 +1085,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gitia-desktop"
+name = "gitsquid-desktop"
 version = "0.1.0"
 dependencies = [
  "serde_json",

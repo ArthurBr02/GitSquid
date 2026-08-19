@@ -49,7 +49,7 @@ def is_sensitive_path(path: str) -> bool:
 
 
 def is_safe_relative_path(path: str) -> bool:
-    """Reject absolute paths, parent traversal, NUL bytes, and writes into .git/.gitia."""
+    """Reject absolute paths, parent traversal, NUL bytes, and writes into .git/.gitsquid."""
     if not path or "\x00" in path:
         return False
     normalized = path.replace("\\", "/").strip()
@@ -58,7 +58,7 @@ def is_safe_relative_path(path: str) -> bool:
     parts = PurePosixPath(normalized).parts
     if not parts or any(part == ".." for part in parts):
         return False
-    return parts[0] not in {".git", ".gitia"}
+    return parts[0] not in {".git", ".gitsquid"}
 
 
 def clean_text_input(value: str, *, max_len: int, field: str) -> str:

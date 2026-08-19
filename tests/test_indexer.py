@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from gitia.indexer import chunk_lines, index_repo, index_summary, language_for, walk_repo
-from gitia.retrieval import search, to_fts_query
+from gitsquid.indexer import chunk_lines, index_repo, index_summary, language_for, walk_repo
+from gitsquid.retrieval import search, to_fts_query
 
 
 def index(conn, repo, **kwargs):

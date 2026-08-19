@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from gitia.config import Settings
-from gitia.db import open_db
-from gitia.llm import Proposal, ProposalRequest
-from gitia.models import ChangeSource
-from gitia.workflow import ChangeService
+from gitsquid.config import Settings
+from gitsquid.db import open_db
+from gitsquid.llm import Proposal, ProposalRequest
+from gitsquid.models import ChangeSource
+from gitsquid.workflow import ChangeService
 
 CALC_PY = '''"""Tiny module the tests patch."""
 
@@ -46,16 +46,14 @@ def git(repo: Path, *args: str, stdin: str | None = None) -> subprocess.Complete
 @pytest.fixture(autouse=True)
 def isolated_env(monkeypatch):
     """No .env file and no ambient API key ever reaches the tests."""
-    monkeypatch.setattr("gitia.config.load_dotenv", lambda *a, **k: False)
-    for name in (
-        "ANTHROPIC_API_KEY",
-        "GITIA_MODEL",
-        "GITIA_EFFORT",
-        "GITIA_MAX_CONTEXT_CHARS",
-        "GITIA_MAX_FILE_BYTES",
-        "GITIA_TEST_COMMAND",
-        "GITIA_TEST_TIMEOUT",
-    ):
+    monkeypatch.setattr("gitsquid.config.load_dotenv", lambda *a, **k: False)
+    settings = (
+        "MODEL", "EFFORT", "MAX_CONTEXT_CHARS", "MAX_FILE_BYTES", "TEST_COMMAND", "TEST_TIMEOUT",
+    )
+    names = ["ANTHROPIC_API_KEY"] + [
+        prefix + name for prefix in ("GITSQUID_", "GITIA_") for name in settings
+    ]
+    for name in names:
         monkeypatch.delenv(name, raising=False)
 
 
@@ -76,11 +74,11 @@ def repo(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def settings(repo: Path) -> Settings:
-    state = repo / ".gitia"
+    state = repo / ".gitsquid"
     return Settings(
         repo=repo,
         state_dir=state,
-        db_path=state / "gitia.db",
+        db_path=state / "gitsquid.db",
         model="claude-opus-5",
         effort="high",
         max_context_chars=20_000,

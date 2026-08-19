@@ -17,7 +17,7 @@ from .workflow import ChangeService, WorkflowError
 app = typer.Typer(
     add_completion=True,
     no_args_is_help=True,
-    help="gitia — index one repository, propose diffs, run tests, record every change.",
+    help="GitSquid — index one repository, propose diffs, run tests, record every change.",
 )
 sample_app = typer.Typer(no_args_is_help=True, help="Load or delete the labelled sample records.")
 app.add_typer(sample_app, name="sample")
@@ -37,8 +37,8 @@ def _settings(repo: Path | None = None) -> Settings:
 def _open(settings: Settings, *, create: bool = False) -> sqlite3.Connection:
     if not create and not settings.initialized:
         ui.empty(
-            f"No gitia database in {settings.repo}.",
-            hint="run `gitia init` to create .gitia/gitia.db",
+            f"No GitSquid database in {settings.repo}.",
+            hint="run `gitsquid init` to create .gitsquid/gitsquid.db",
         )
         raise typer.Exit(EXIT_INVALID)
     try:
@@ -51,7 +51,7 @@ def _open(settings: Settings, *, create: bool = False) -> sqlite3.Connection:
 def _require_change(repo: ChangeRepo, change_id: int) -> Change:
     change = repo.get(change_id)
     if change is None:
-        ui.fail(f"No change #{change_id}. Run `gitia log` to list what is recorded.")
+        ui.fail(f"No change #{change_id}. Run `gitsquid log` to list what is recorded.")
         raise typer.Exit(EXIT_INVALID)
     return change
 
@@ -78,7 +78,7 @@ def init(
         ui.ok(f"Database already present at {settings.db_path}")
     else:
         ui.ok(f"Created {settings.db_path}")
-    ui.info("Next: `gitia index` to build the local index, then `gitia doctor`.")
+    ui.info("Next: `gitsquid index` to build the local index, then `gitsquid doctor`.")
 
 
 @app.command()
@@ -90,7 +90,7 @@ def doctor(
     rows = [
         ("Repository", str(settings.repo)),
         ("Database", str(settings.db_path)),
-        ("Initialized", "yes" if settings.initialized else "no — run `gitia init`"),
+        ("Initialized", "yes" if settings.initialized else "no — run `gitsquid init`"),
         ("Model", settings.model),
         ("Effort", settings.effort),
         ("Context budget", f"{settings.max_context_chars:,} characters"),
@@ -110,12 +110,12 @@ def doctor(
             ("Sample records", f"{sampledata.count(conn):,}"),
         ]
         conn.close()
-    ui.kv(rows, title="gitia status")
+    ui.kv(rows, title="GitSquid status")
 
     if not settings.model_available:
         ui.warn(
-            "Degraded mode: `gitia propose` cannot call a model. Everything else works, and "
-            "`gitia propose --patch-file p.diff` still validates, applies, tests and records "
+            "Degraded mode: `gitsquid propose` cannot call a model. Everything else works, and "
+            "`gitsquid propose --patch-file p.diff` still validates, applies, tests and records "
             "a diff you wrote yourself."
         )
 
@@ -141,7 +141,7 @@ def index(
     if summary["files"] == 0:
         ui.empty(
             "Nothing indexable found.",
-            hint="gitia skips binaries, credential files, and anything over GITIA_MAX_FILE_BYTES.",
+            hint="gitsquid skips binaries, credential files, and anything over GITSQUID_MAX_FILE_BYTES.",
         )
         return
     ui.ok(
@@ -171,7 +171,7 @@ def search(
     if not hits:
         ui.empty(
             f"No indexed chunk matches {cleaned!r}.",
-            hint="run `gitia index` if the repository changed, or try different words.",
+            hint="run `gitsquid index` if the repository changed, or try different words.",
         )
         return
     for hit in hits:
@@ -189,7 +189,7 @@ def _backend(settings: Settings, patch_file: Path | None) -> ProposalBackend:
         ui.fail("No ANTHROPIC_API_KEY, so no model can be called.")
         ui.info(
             "Degraded mode: write the diff yourself and pass `--patch-file p.diff`. "
-            "gitia will still validate, apply, test, and record it."
+            "GitSquid will still validate, apply, test, and record it."
         )
         raise typer.Exit(EXIT_INVALID)
     return AnthropicBackend(settings)
@@ -247,7 +247,7 @@ def propose(
     _render_proposal(outcome, plain=plain)
     if outcome.applies_cleanly:
         ui.ok(f"Recorded as change #{outcome.change.id} and it applies cleanly.")
-        ui.info(f"Next: `gitia apply {outcome.change.id}` then `gitia test {outcome.change.id}`.")
+        ui.info(f"Next: `gitsquid apply {outcome.change.id}` then `gitsquid test {outcome.change.id}`.")
     else:
         ui.invalid(
             f"Recorded as change #{outcome.change.id}, but git refuses it:",
@@ -258,7 +258,7 @@ def propose(
 
 @app.command()
 def show(
-    change_id: int = typer.Argument(..., help="Change id from `gitia log`."),
+    change_id: int = typer.Argument(..., help="Change id from `gitsquid log`."),
     plain: bool = typer.Option(False, "--plain", help="Print the diff without syntax colouring."),
     repo: Path = typer.Option(None, "--repo"),
 ) -> None:
@@ -302,7 +302,7 @@ def show(
 
 @app.command()
 def apply(
-    change_id: int = typer.Argument(..., help="Change id from `gitia log`."),
+    change_id: int = typer.Argument(..., help="Change id from `gitsquid log`."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
     repo: Path = typer.Option(None, "--repo"),
 ) -> None:
@@ -321,7 +321,7 @@ def apply(
         raise typer.Exit(EXIT_INVALID)
 
     if diffs.working_tree_dirty(settings.repo):
-        ui.warn("The working tree has uncommitted changes; `gitia revert` may not undo cleanly.")
+        ui.warn("The working tree has uncommitted changes; `gitsquid revert` may not undo cleanly.")
     if not _confirm(
         f"Apply change #{change.id} to {', '.join(change.files_touched) or 'the working tree'}?",
         assume_yes=yes,
@@ -337,14 +337,14 @@ def apply(
         conn.close()
         raise typer.Exit(EXIT_FAILURE) from exc
     ui.ok(f"Change #{change.id} applied to {settings.repo}.")
-    ui.info(f"Next: `gitia test {change.id}` to verify, or `gitia revert {change.id}` to undo.")
+    ui.info(f"Next: `gitsquid test {change.id}` to verify, or `gitsquid revert {change.id}` to undo.")
     conn.close()
 
 
 @app.command()
 def test(
     change_id: int = typer.Argument(None, help="Change to attach the run to (default: latest)."),
-    command: str = typer.Option(None, "--command", "-c", help="Override GITIA_TEST_COMMAND."),
+    command: str = typer.Option(None, "--command", "-c", help="Override GITSQUID_TEST_COMMAND."),
     repo: Path = typer.Option(None, "--repo"),
 ) -> None:
     """Run the verification command and record the result against a change."""
@@ -356,7 +356,7 @@ def test(
         _require_change(service.changes, change_id) if change_id is not None else service.changes.latest()
     )
     if change is None:
-        ui.empty("No change recorded yet.", hint="run `gitia propose \"...\"` first.")
+        ui.empty("No change recorded yet.", hint="run `gitsquid propose \"...\"` first.")
         conn.close()
         raise typer.Exit(EXIT_INVALID)
 
@@ -370,13 +370,13 @@ def test(
         return
     ui.fail(f"`{used}` exited {run.exit_code} after {run.duration_ms}ms.")
     ui.panel("Output tail", run.output_tail or "(no output)")
-    ui.info(f"Undo with `gitia revert {change.id}`.")
+    ui.info(f"Undo with `gitsquid revert {change.id}`.")
     raise typer.Exit(EXIT_FAILURE)
 
 
 @app.command()
 def revert(
-    change_id: int = typer.Argument(..., help="Change id from `gitia log`."),
+    change_id: int = typer.Argument(..., help="Change id from `gitsquid log`."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
     repo: Path = typer.Option(None, "--repo"),
 ) -> None:
@@ -426,7 +426,7 @@ def log_command(
     if not changes:
         ui.empty(
             "No change recorded yet.",
-            hint='gitia propose "describe the change you want" — or `gitia sample load` to see the shape of the data.',
+            hint='gitsquid propose "describe the change you want" — or `gitsquid sample load` to see the shape of the data.',
         )
         return
     ui.changes_table(changes)
@@ -491,7 +491,7 @@ def run_command(
     ui.ok(f"Applied change #{change.id}.")
 
     if skip_tests:
-        ui.warn(f"Tests skipped. Verify later with `gitia test {change.id}`.")
+        ui.warn(f"Tests skipped. Verify later with `gitsquid test {change.id}`.")
         conn.close()
         return
 
@@ -511,27 +511,30 @@ def run_command(
         except WorkflowError as exc:
             ui.fail(str(exc))
     else:
-        ui.info(f"The change is still applied. Undo with `gitia revert {change.id}`.")
+        ui.info(f"The change is still applied. Undo with `gitsquid revert {change.id}`.")
     conn.close()
     raise typer.Exit(EXIT_FAILURE)
 
 
 def _resolve_ui_repo(repo: Path | None) -> Settings:
-    """The interface may be launched from anywhere — fall back to the last repository used."""
+    """Without --repo the interface reopens the repository you were last on, wherever you are."""
     from . import registry
 
-    try:
-        return load_settings(repo)
-    except ConfigError as exc:
-        if repo is not None:
+    if repo is not None:
+        try:
+            return load_settings(repo)
+        except ConfigError as exc:
             ui.fail(str(exc))
             raise typer.Exit(EXIT_INVALID) from exc
-        for entry in registry.known():
-            if entry.exists:
-                ui.info(f"Not inside a repository — reopening {entry.name}.")
-                return load_settings(entry.path)
+
+    for entry in registry.known():  # newest first: the head is the last repository opened
+        if entry.exists:
+            return load_settings(entry.path)
+    try:
+        return load_settings(None)
+    except ConfigError as exc:
         ui.fail(str(exc))
-        ui.info("Open one first: `gitia ui --repo /path/to/repository`.")
+        ui.info("Open one first: `gitsquid ui --repo /path/to/repository`.")
         raise typer.Exit(EXIT_INVALID) from exc
 
 
@@ -554,10 +557,12 @@ def ui_command(
         server = UIServer(settings, port=port)
     except OSError as exc:
         ui.fail(f"Could not bind port {port}: {exc}")
-        ui.info(f"Another port is free: `gitia ui --port {port + 1}`.")
+        ui.info(f"Another port is free: `gitsquid ui --port {port + 1}`.")
         raise typer.Exit(EXIT_FAILURE) from exc
 
-    ui.ok(f"gitia is serving {settings.repo.name} at {server.url}")
+    ui.ok(f"GitSquid is serving {settings.repo.name} at {server.url}")
+    if repo is None and settings.repo != Path.cwd().resolve():
+        ui.info("That is the repository you were last on. `--repo .` opens this folder instead.")
     ui.info("Loopback only — nothing outside this machine can reach it.")
     ui.info("Switch or add repositories from the interface. Press Ctrl+C to stop.")
     if open_browser:
@@ -588,10 +593,10 @@ def export_command(
 
 @app.command(name="import")
 def import_command(
-    path: Path = typer.Argument(..., help="A gitia export .json file."),
+    path: Path = typer.Argument(..., help="A GitSquid export .json file."),
     repo: Path = typer.Option(None, "--repo"),
 ) -> None:
-    """Import changes from a gitia export, skipping ones already recorded."""
+    """Import changes from a GitSquid export, skipping ones already recorded."""
     settings = _settings(repo)
     conn = _open(settings)
     try:
@@ -613,13 +618,13 @@ def sample_load(repo: Path = typer.Option(None, "--repo")) -> None:
     settings = _settings(repo)
     conn = _open(settings)
     if sampledata.count(conn) > 0:
-        ui.warn("Sample records are already loaded. `gitia sample clear` removes them first.")
+        ui.warn("Sample records are already loaded. `gitsquid sample clear` removes them first.")
         conn.close()
         raise typer.Exit(0)
     created = sampledata.load(conn)
     conn.close()
     ui.ok(f"Loaded {created} sample change(s), each flagged SAMPLE.")
-    ui.info("Remove them at any time with `gitia sample clear`.")
+    ui.info("Remove them at any time with `gitsquid sample clear`.")
 
 
 @sample_app.command("clear")

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from gitia import gitlog
+from gitsquid import gitlog
 from tests.conftest import git
 
 RUNNER = Path(__file__).parent / "graph_layout_runner.js"

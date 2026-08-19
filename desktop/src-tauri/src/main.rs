@@ -1,4 +1,4 @@
-// gitia desktop shell: starts the local engine, then shows it in a native window.
+// gitsquid desktop shell: starts the local engine, then shows it in a native window.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod engine;
@@ -39,10 +39,10 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 
     let app_menu = Submenu::with_items(
         app,
-        "gitia",
+        "GitSquid",
         true,
         &[
-            &PredefinedMenuItem::about(app, Some("About gitia"), Some(AboutMetadata::default()))?,
+            &PredefinedMenuItem::about(app, Some("About GitSquid"), Some(AboutMetadata::default()))?,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::hide(app, None)?,
             &PredefinedMenuItem::quit(app, None)?,
@@ -77,7 +77,7 @@ async fn open_repository(app: tauri::AppHandle) {
         engine.port()
     };
     let Some(port) = port else {
-        app.dialog().message("The engine is not running yet.").title("gitia").show(|_| {});
+        app.dialog().message("The engine is not running yet.").title("GitSquid").show(|_| {});
         return;
     };
 
@@ -107,7 +107,7 @@ fn main() {
             app.set_menu(build_menu(&handle)?)?;
 
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("gitia")
+                .title("GitSquid")
                 .inner_size(1440.0, 920.0)
                 .min_inner_size(940.0, 620.0)
                 .center()
@@ -139,5 +139,5 @@ fn main() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("gitia desktop failed to start");
+        .expect("GitSquid desktop failed to start");
 }

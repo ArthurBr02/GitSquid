@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from gitia import diffs
+from gitsquid import diffs
 from tests.conftest import make_patch
 
 GOOD = """diff --git a/calc.py b/calc.py
@@ -53,7 +53,7 @@ class TestValidation:
         assert diffs.validate(patch) != []
 
     def test_rejects_writes_into_git_and_state_dirs(self):
-        for target in (".git/config", ".gitia/gitia.db"):
+        for target in (".git/config", ".gitsquid/gitsquid.db"):
             patch = GOOD.replace("calc.py", target)
             assert any("Refusing path" in problem for problem in diffs.validate(patch))
 

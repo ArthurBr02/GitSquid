@@ -14,7 +14,7 @@ from .models import (
 )
 
 # Records of plausible past work on a fictional `billing` module. They are flagged
-# is_sample=1 everywhere, shown as SAMPLE in the UI, and removed by `gitia sample clear`.
+# is_sample=1 everywhere, shown as SAMPLE in the UI, and removed by `gitsquid sample clear`.
 
 _RETRY_DIFF = """diff --git a/billing/invoices.py b/billing/invoices.py
 --- a/billing/invoices.py

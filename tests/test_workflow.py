@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from gitia.indexer import index_repo
-from gitia.llm import ProposalError
-from gitia.models import ChangeStatus
-from gitia.workflow import WorkflowError
+from gitsquid.indexer import index_repo
+from gitsquid.llm import ProposalError
+from gitsquid.models import ChangeStatus
+from gitsquid.workflow import WorkflowError
 from tests.conftest import StubBackend, make_patch
 
 

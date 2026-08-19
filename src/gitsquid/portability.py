@@ -20,7 +20,8 @@ from .models import (
     utcnow,
 )
 
-FORMAT = "gitia-export"
+FORMAT = "gitsquid-export"
+LEGACY_FORMAT = "gitia-export"
 FORMAT_VERSION = 1
 MAX_IMPORT_BYTES = 50 * 1024 * 1024
 
@@ -115,7 +116,7 @@ def load_payload(path: Path) -> dict[str, Any]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise ImportError_(f"{path} is not valid UTF-8 JSON: {exc}") from exc
-    if not isinstance(payload, dict) or payload.get("format") != FORMAT:
+    if not isinstance(payload, dict) or payload.get("format") not in {FORMAT, LEGACY_FORMAT}:
         raise ImportError_(f"{path} is not a {FORMAT} file.")
     version = payload.get("version")
     if not isinstance(version, int) or version > FORMAT_VERSION:

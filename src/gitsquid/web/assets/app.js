@@ -1204,7 +1204,7 @@ function openPropose() {
   const available = state.data.state.config.model_available;
   $("propose-hint").textContent = available
     ? `The task and the retrieved excerpts go to ${state.data.state.config.model}. Paste a diff below to skip the model.`
-    : "No API key configured, so a diff is required. gitia validates, applies, tests and records it exactly the same way.";
+    : "No API key configured, so a diff is required. GitSquid validates, applies, tests and records it exactly the same way.";
   $("patch-requirement").textContent = available ? "optional" : "required";
   $("propose-error").hidden = true;
   $("propose-modal").showModal();
@@ -1426,7 +1426,7 @@ function bind() {
     const response = await fetch("/api/export");
     if (!response.ok) throw new Error("Export failed.");
     const url = URL.createObjectURL(await response.blob());
-    const link = el("a", { href: url, download: "gitia-export.json" });
+    const link = el("a", { href: url, download: "gitsquid-export.json" });
     document.body.append(link);
     link.click();
     link.remove();
@@ -1504,7 +1504,7 @@ async function boot() {
   } catch (error) {
     status("Ready.");
     clear($("detail")).append(el("div", { class: "empty-state" }, [
-      el("h2", { text: "Could not reach gitia" }), el("p", { text: error.message }),
+      el("h2", { text: "Could not reach GitSquid" }), el("p", { text: error.message }),
     ]));
     toast("bad", error.message);
   }

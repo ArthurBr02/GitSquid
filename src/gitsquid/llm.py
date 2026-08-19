@@ -11,7 +11,7 @@ from .safety import clean_text_input
 MAX_OUTPUT_TOKENS = 32_000
 FALLBACK_MODELS = ("claude-opus-5", "claude-fable-5")
 
-SYSTEM_PROMPT = """You are the proposal engine of gitia, a repository-local Git assistant.
+SYSTEM_PROMPT = """You are the proposal engine of GitSquid, a repository-local Git assistant.
 
 You receive a task and a few excerpts from one repository. You reply with exactly two things:
 
@@ -22,7 +22,7 @@ Rules for the diff:
 - It must apply with `git apply -p1` against the excerpts shown, using `a/` and `b/` path prefixes.
 - Include a `diff --git a/<path> b/<path>` header and `@@` hunks with correct line numbers and
   three lines of context where the file allows it.
-- Paths are relative to the repository root. Never touch `.git/`, `.gitia/`, `.env`, keys, or
+- Paths are relative to the repository root. Never touch `.git/`, `.gitsquid/`, `.env`, keys, or
   anything outside the repository.
 - Change the least that completes the task. No unrelated reformatting, no placeholder bodies,
   no `TODO` stubs standing in for the work.
@@ -83,7 +83,7 @@ def split_response(text: str) -> tuple[str, str]:
 
 
 class PatchFileBackend:
-    """Degraded mode: the user supplies the diff, gitia does everything else."""
+    """Degraded mode: the user supplies the diff, GitSquid does everything else."""
 
     name = "patch-file"
 

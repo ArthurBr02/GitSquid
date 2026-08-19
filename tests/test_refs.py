@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from gitia import gitlog, refs
-from gitia.gitcmd import GitError
+from gitsquid import gitlog, refs
+from gitsquid.gitcmd import GitError
 from tests.conftest import git
 
 

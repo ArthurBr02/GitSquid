@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "gitia",
+  "productName": "GitSquid",
   "version": "0.1.0",
-  "identifier": "local.gitia.desktop",
+  "identifier": "local.gitsquid.desktop",
   "build": {
     "frontendDist": "../ui"
   },
@@ -26,6 +26,6 @@
     "copyright": "MIT",
     "category": "DeveloperTool",
     "shortDescription": "Repository-local Git client assistant",
-    "longDescription": "gitia indexes one repository, proposes diffs, runs tests, and records every change — with a graph, staging, and commits."
+    "longDescription": "GitSquid indexes one repository, proposes diffs, runs tests, and records every change — with a graph, staging, and commits."
   }
 }

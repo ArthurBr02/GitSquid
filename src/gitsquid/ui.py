@@ -34,7 +34,7 @@ STATUS_TOKENS = {
 
 
 def _color_enabled() -> bool:
-    return not (os.environ.get("NO_COLOR") or os.environ.get("GITIA_NO_COLOR"))
+    return not (os.environ.get("NO_COLOR") or os.environ.get("GITSQUID_NO_COLOR"))
 
 
 def _width() -> int | None:

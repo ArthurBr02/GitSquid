@@ -10,16 +10,16 @@ import urllib.request
 
 import pytest
 
-from gitia.db import open_db
-from gitia.indexer import index_repo
-from gitia.web import UIServer
+from gitsquid.db import open_db
+from gitsquid.indexer import index_repo
+from gitsquid.web import UIServer
 from tests.conftest import git, make_patch
 
 
 @pytest.fixture
 def server(settings, monkeypatch, tmp_path):
-    monkeypatch.setenv("GITIA_TEST_COMMAND", f"{sys.executable} -m pytest -q")
-    monkeypatch.setenv("GITIA_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("GITSQUID_TEST_COMMAND", f"{sys.executable} -m pytest -q")
+    monkeypatch.setenv("GITSQUID_CONFIG_DIR", str(tmp_path / "config"))
     conn = open_db(settings.db_path)
     index_repo(conn, settings.repo, max_file_bytes=settings.max_file_bytes)
     conn.close()
@@ -136,8 +136,8 @@ class TestWorktreeOverHttp:
         assert graph["commits"][0]["subject"] == "Edit the calculation"
 
     def test_a_commit_is_recorded_in_the_audit_trail(self, server, repo, settings):
-        from gitia.db import open_db
-        from gitia.models import EventLog
+        from gitsquid.db import open_db
+        from gitsquid.models import EventLog
 
         (repo / "calc.py").write_text("edited\n", encoding="utf-8")
         call(server, "/api/worktree/stage", method="POST", body={"paths": ["calc.py"]})
@@ -250,7 +250,7 @@ class TestLoopOverHttp:
         request = urllib.request.Request(f"http://127.0.0.1:{server.port}/api/export")
         with urllib.request.urlopen(request, timeout=30) as response:
             document = json.loads(response.read())
-        assert document["format"] == "gitia-export"
+        assert document["format"] == "gitsquid-export"
         assert len(document["changes"]) == 1
 
         status, payload = call(server, "/api/import", method="POST", body={"document": document})
@@ -260,7 +260,7 @@ class TestLoopOverHttp:
     def test_import_rejects_a_foreign_document(self, server):
         status, payload = call(server, "/api/import", method="POST", body={"document": {"format": "nope"}})
         assert status == 400
-        assert "gitia-export" in payload["error"]
+        assert "gitsquid-export" in payload["error"]
 
     def test_reindex_reports_progress(self, server, repo):
         (repo / "extra.py").write_text("VALUE = 2\n", encoding="utf-8")
@@ -292,7 +292,7 @@ class TestMultipleRepositories:
 
         assert call(server, "/api/state")[1]["repo"]["name"] == "atelier"
         assert call(server, "/api/graph")[1]["commits"][0]["subject"] == "depart"
-        assert (other / ".gitia" / "gitia.db").exists()
+        assert (other / ".gitsquid" / "gitsquid.db").exists()
         assert {entry["name"] for entry in call(server, "/api/repos")[1]["repos"]} == {"workshop", "atelier"}
 
     def test_each_repository_keeps_its_own_history(self, server, repo, tmp_path, patch_add_multiply):
@@ -456,8 +456,8 @@ class TestHistoryOverHttp:
             assert status == 400 and "commit id" in payload["error"]
 
     def test_a_history_action_lands_in_the_audit_trail(self, server, repo, settings):
-        from gitia.db import open_db
-        from gitia.models import EventLog
+        from gitsquid.db import open_db
+        from gitsquid.models import EventLog
 
         sha = commit_over_http(server, repo, "trace.py", "X = 1\n", "trace")
         call(server, "/api/worktree/revert-commit", method="POST", body={"sha": sha})

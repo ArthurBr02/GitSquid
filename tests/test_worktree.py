@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from gitia import worktree
-from gitia.worktree import WorktreeError
+from gitsquid import worktree
+from gitsquid.worktree import WorktreeError
 from tests.conftest import git
 
 
@@ -68,7 +68,7 @@ class TestStageUnstageDiscard:
         assert not (repo / "junk.py").exists()
 
     def test_paths_outside_the_repository_are_refused(self, repo):
-        for hostile in ["../escape.py", "/etc/passwd", ".git/config", ".gitia/gitia.db"]:
+        for hostile in ["../escape.py", "/etc/passwd", ".git/config", ".gitsquid/gitsquid.db"]:
             with pytest.raises(WorktreeError, match="outside the repository"):
                 worktree.stage(repo, [hostile])
 

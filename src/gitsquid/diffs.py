@@ -52,7 +52,7 @@ def validate(diff: str) -> list[str]:
         problems.append("The patch does not name any file.")
     for path in files:
         if not is_safe_relative_path(path):
-            problems.append(f"Refusing path outside the repository or inside .git/.gitia: {path}")
+            problems.append(f"Refusing path outside the repository or inside .git/.gitsquid: {path}")
         elif is_sensitive_path(path):
             problems.append(f"Refusing to patch a credential file: {path}")
     return problems

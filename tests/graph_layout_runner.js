@@ -3,7 +3,7 @@
 /* Feeds rows from the test suite through the browser layout so pytest can assert on it. */
 
 const path = require("path");
-const Graph = require(path.join(__dirname, "..", "src", "gitia", "web", "assets", "graph.js"));
+const Graph = require(path.join(__dirname, "..", "src", "gitsquid", "web", "assets", "graph.js"));
 
 let input = "";
 process.stdin.setEncoding("utf8");

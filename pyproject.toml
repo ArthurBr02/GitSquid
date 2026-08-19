@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "gitia"
+name = "gitsquid"
 version = "0.1.0"
 description = "Repository-local Git client assistant: index one codebase, propose diffs, run tests, record every change."
 readme = "README.md"
@@ -23,12 +23,12 @@ dev = [
 ]
 
 [project.scripts]
-gitia = "gitia.cli:app"
+gitsquid = "gitsquid.cli:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/gitia"]
+packages = ["src/gitsquid"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
-filterwarnings = ["error::DeprecationWarning:gitia.*"]
+filterwarnings = ["error::DeprecationWarning:gitsquid.*"]

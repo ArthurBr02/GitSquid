@@ -1,14 +1,19 @@
 {
-  "name": "gitia-desktop",
+  "name": "gitsquid-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Native desktop shell for gitia.",
+  "description": "Native desktop shell for GitSquid.",
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",
+    "build:macos": "node scripts/build.mjs macos",
+    "build:macos:universal": "node scripts/build.mjs macos --universal",
+    "build:windows": "node scripts/build.mjs windows",
+    "build:linux": "node scripts/build.mjs linux",
     "tauri": "tauri"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
-  }
+  },
+  "type": "module"
 }

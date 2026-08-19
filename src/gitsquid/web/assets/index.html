@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>gitia</title>
+<title>GitSquid</title>
 <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body>
@@ -12,7 +12,7 @@
 <header class="topbar">
   <div class="brand">
     <span class="mark" aria-hidden="true"></span>
-    <span class="brand-name">gitia</span>
+    <span class="brand-name">GitSquid</span>
   </div>
   <button type="button" class="repo-chip" id="repo-chip" aria-haspopup="dialog"
     title="Switch repository">
@@ -167,11 +167,11 @@
 
 <dialog class="modal" id="import-modal" aria-labelledby="import-title">
   <form method="dialog" id="import-form">
-    <h2 id="import-title">Import a gitia export</h2>
-    <p class="hint">Paste the contents of a <code>gitia export</code> JSON file. Changes already recorded are skipped.</p>
+    <h2 id="import-title">Import a GitSquid export</h2>
+    <p class="hint">Paste the contents of a <code>gitsquid export</code> JSON file. Changes already recorded are skipped.</p>
     <label class="field">
       <span class="field-label">Export document <em>required</em></span>
-      <textarea id="import-doc" rows="12" spellcheck="false" required placeholder='{ "format": "gitia-export", ... }'></textarea>
+      <textarea id="import-doc" rows="12" spellcheck="false" required placeholder='{ "format": "gitsquid-export", ... }'></textarea>
     </label>
     <p class="form-error" id="import-error" role="alert" hidden></p>
     <menu class="modal-actions">

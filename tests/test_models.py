@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from gitia import models
-from gitia.models import (
+from gitsquid import models
+from gitsquid.models import (
     Change,
     ChangeRepo,
     ChangeSource,

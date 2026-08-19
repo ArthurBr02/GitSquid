@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>gitia</title>
+<title>GitSquid</title>
 <style>
   :root { color-scheme: dark; }
   html, body { height: 100%; margin: 0; }
@@ -44,7 +44,7 @@
 <body>
   <div class="boot">
     <div class="mark" aria-hidden="true"></div>
-    <h1>gitia</h1>
+    <h1>GitSquid</h1>
     <p>Repository-local Git client assistant</p>
     <div class="state" role="status" aria-live="polite">
       <span class="spinner" aria-hidden="true"></span>
@@ -59,7 +59,7 @@
 
 <script>
   // Called from the Rust side while the backend boots.
-  window.gitiaStatus = (payload) => {
+  window.gitsquidStatus = (payload) => {
     if (payload.message) document.getElementById("message").textContent = payload.message;
     if (!payload.error) return;
     document.body.classList.add("failed");

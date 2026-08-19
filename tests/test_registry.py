@@ -6,14 +6,14 @@ import json
 
 import pytest
 
-from gitia import registry
-from gitia.config import ConfigError
+from gitsquid import registry
+from gitsquid.config import ConfigError
 from tests.conftest import git
 
 
 @pytest.fixture(autouse=True)
 def isolated_config(monkeypatch, tmp_path):
-    monkeypatch.setenv("GITIA_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("GITSQUID_CONFIG_DIR", str(tmp_path / "config"))
 
 
 def a_repo(tmp_path, name):

@@ -11,13 +11,24 @@ MAX_REPOS = 50
 
 
 def config_dir() -> Path:
-    base = os.environ.get("GITIA_CONFIG_DIR") or os.environ.get("XDG_CONFIG_HOME")
+    base = (
+        os.environ.get("GITSQUID_CONFIG_DIR")
+        or os.environ.get("GITIA_CONFIG_DIR")
+        or os.environ.get("XDG_CONFIG_HOME")
+    )
     root = Path(base).expanduser() if base else Path.home() / ".config"
-    return root / "gitia"
+    return root / "gitsquid"
 
 
 def registry_path() -> Path:
     return config_dir() / "repos.json"
+
+
+def _source_path() -> Path:
+    """The list written before the rename is read until the new one exists."""
+    current = registry_path()
+    legacy = config_dir().parent / "gitia" / "repos.json"
+    return legacy if not current.exists() and legacy.exists() else current
 
 
 @dataclass(frozen=True)
@@ -34,7 +45,7 @@ class KnownRepo:
 
     @property
     def initialized(self) -> bool:
-        return (self.path / STATE_DIRNAME / "gitia.db").exists()
+        return (self.path / STATE_DIRNAME / "gitsquid.db").exists()
 
     def as_dict(self) -> dict:
         return {
@@ -46,7 +57,7 @@ class KnownRepo:
 
 
 def _read() -> list[Path]:
-    target = registry_path()
+    target = _source_path()
     if not target.exists():
         return []
     try:

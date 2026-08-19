@@ -278,7 +278,7 @@ class UIServer:
                 else:
                     raise ApiError(
                         "No ANTHROPIC_API_KEY, so no model can be called. Paste a diff instead — "
-                        "gitia will validate, apply, test and record it."
+                        "GitSquid will validate, apply, test and record it."
                     )
                 try:
                     outcome = service.propose(task, backend)
@@ -347,7 +347,7 @@ class UIServer:
     def import_payload(self, payload: dict) -> dict:
         raw = payload.get("document")
         if not isinstance(raw, dict):
-            raise ApiError("Paste the contents of a gitia export file.")
+            raise ApiError("Paste the contents of a GitSquid export file.")
         with self._lock:
             conn, _ = self.service()
             target = self.settings.state_dir / "import-staging.json"
@@ -435,7 +435,7 @@ def _string(payload: dict, key: str) -> str:
 
 
 class _Handler(BaseHTTPRequestHandler):
-    server_version = "gitia"
+    server_version = "gitsquid"
     sys_version = ""
 
     def __init__(self, ui: UIServer, *args, **kwargs) -> None:
@@ -519,7 +519,7 @@ class _Handler(BaseHTTPRequestHandler):
                 body = self.ui.export()
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Content-Disposition", 'attachment; filename="gitia-export.json"')
+                self.send_header("Content-Disposition", 'attachment; filename="gitsquid-export.json"')
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)

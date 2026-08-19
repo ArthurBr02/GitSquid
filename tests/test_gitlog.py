@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from gitia import gitlog
+from gitsquid import gitlog
 from tests.conftest import git
 
 

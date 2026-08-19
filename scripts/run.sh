@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Production-style local run: build a wheel, install it into a clean venv, run gitia from it.
-# Usage: ./scripts/run.sh [gitia arguments...]   (default: ui)
+# Production-style local run: build a wheel, install it into a clean venv, run gitsquid from it.
+# Usage: ./scripts/run.sh [gitsquid arguments...]   (default: ui)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -13,4 +13,4 @@ PYTHON="${PYTHON:-python3}"
 .venv-prod/bin/python -m pip install --quiet --force-reinstall "$WHEEL"
 
 echo "[ok] running $WHEEL"
-exec .venv-prod/bin/gitia "${@:-ui}"
+exec .venv-prod/bin/gitsquid "${@:-ui}"

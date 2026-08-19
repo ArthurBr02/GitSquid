@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from gitia import portability
-from gitia.indexer import index_repo
-from gitia.models import ChangeRepo, ChangeStatus
+from gitsquid import portability
+from gitsquid.indexer import index_repo
+from gitsquid.models import ChangeRepo, ChangeStatus
 from tests.conftest import StubBackend
 
 
@@ -25,7 +25,7 @@ class TestExport:
         assert portability.export_to_file(conn, target, repo_name="workshop") == 1
 
         payload = json.loads(target.read_text())
-        assert payload["format"] == "gitia-export"
+        assert payload["format"] == "gitsquid-export"
         assert payload["version"] == 1
         assert payload["repo"] == "workshop"
 
@@ -47,7 +47,7 @@ class TestImport:
         target = tmp_path / "export.json"
         portability.export_to_file(conn, target, repo_name="workshop")
 
-        from gitia.db import open_db
+        from gitsquid.db import open_db
 
         other = open_db(tmp_path / "other.db")
         stats = portability.import_from_file(other, target)
@@ -72,7 +72,7 @@ class TestImport:
     def test_rejects_a_file_that_is_not_an_export(self, conn, tmp_path):
         bad = tmp_path / "bad.json"
         bad.write_text(json.dumps({"format": "something-else"}))
-        with pytest.raises(portability.ImportError_, match="not a gitia-export"):
+        with pytest.raises(portability.ImportError_, match="not a gitsquid-export"):
             portability.import_from_file(conn, bad)
 
     def test_rejects_invalid_json(self, conn, tmp_path):
@@ -83,7 +83,7 @@ class TestImport:
 
     def test_rejects_a_future_version(self, conn, tmp_path):
         bad = tmp_path / "bad.json"
-        bad.write_text(json.dumps({"format": "gitia-export", "version": 99, "changes": []}))
+        bad.write_text(json.dumps({"format": "gitsquid-export", "version": 99, "changes": []}))
         with pytest.raises(portability.ImportError_, match="Unsupported export version"):
             portability.import_from_file(conn, bad)
 
@@ -92,7 +92,7 @@ class TestImport:
         bad.write_text(
             json.dumps(
                 {
-                    "format": "gitia-export",
+                    "format": "gitsquid-export",
                     "version": 1,
                     "changes": [{"task": 42, "diff": "x", "created_at": "now"}],
                 }
@@ -107,7 +107,7 @@ class TestImport:
 
     def test_imported_diffs_are_still_validated_for_path_safety(self, conn, tmp_path):
         payload = {
-            "format": "gitia-export",
+            "format": "gitsquid-export",
             "version": 1,
             "changes": [
                 {
@@ -121,7 +121,7 @@ class TestImport:
         target.write_text(json.dumps(payload))
         portability.import_from_file(conn, target)
 
-        from gitia import diffs
+        from gitsquid import diffs
 
         imported = ChangeRepo(conn).latest()
         assert diffs.validate(imported.diff) != []

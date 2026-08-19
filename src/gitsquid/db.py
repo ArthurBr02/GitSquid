@@ -90,9 +90,9 @@ class SchemaError(Exception):
 
 def connect(db_path: Path, *, create: bool = True) -> sqlite3.Connection:
     if not create and not db_path.exists():
-        raise SchemaError(f"No database at {db_path}. Run `gitia init` first.")
+        raise SchemaError(f"No database at {db_path}. Run `gitsquid init` first.")
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    # gitia must never appear in the user's own working tree, whatever created the directory.
+    # The state directory must never appear in the user's own working tree, whatever created the directory.
     ignore = db_path.parent / ".gitignore"
     if not ignore.exists():
         ignore.write_text("*\n", encoding="utf-8")
@@ -108,7 +108,7 @@ def initialize(conn: sqlite3.Connection) -> None:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     if version > SCHEMA_VERSION:
         raise SchemaError(
-            f"Database schema v{version} is newer than this build (v{SCHEMA_VERSION}). Upgrade gitia."
+            f"Database schema v{version} is newer than this build (v{SCHEMA_VERSION}). Upgrade GitSquid."
         )
     conn.executescript(SCHEMA)
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")

@@ -8,6 +8,7 @@ dist/
 build/
 *.egg-info/
 .env
+.gitsquid/
 .gitia/
 
 .venv-prod/

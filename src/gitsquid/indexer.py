@@ -13,7 +13,7 @@ from .safety import is_sensitive_path
 CHUNK_LINES = 80
 IGNORED_DIRS = frozenset(
     {
-        ".git", ".gitia", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache",
+        ".git", ".gitsquid", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache",
         ".pytest_cache", ".ruff_cache", "dist", "build", ".tox", ".idea", ".vscode",
         "target", "vendor", ".next", ".cache", "htmlcov", ".eggs",
     }

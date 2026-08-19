@@ -1,4 +1,4 @@
-//! Supervises the `gitia ui` process that does the real work.
+//! Supervises the `gitsquid ui` process that does the real work.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
@@ -42,12 +42,14 @@ impl Drop for Engine {
     }
 }
 
-/// Where to find the `gitia` executable, most explicit first.
+/// Where to find the `gitsquid` executable, most explicit first.
 fn candidates() -> Vec<PathBuf> {
     let mut found = Vec::new();
-    if let Ok(explicit) = std::env::var("GITIA_BIN") {
-        if !explicit.trim().is_empty() {
-            found.push(PathBuf::from(explicit));
+    for name in ["GITSQUID_BIN", "GITIA_BIN"] {
+        if let Ok(explicit) = std::env::var(name) {
+            if !explicit.trim().is_empty() {
+                found.push(PathBuf::from(explicit));
+            }
         }
     }
     // The project this shell was built from: desktop/src-tauri -> project root.
@@ -56,9 +58,13 @@ fn candidates() -> Vec<PathBuf> {
         .and_then(|p| p.parent())
         .map(PathBuf::from);
     if let Some(root) = project {
-        found.push(root.join(".venv/bin/gitia"));
-        found.push(root.join(".venv-prod/bin/gitia"));
+        for venv in [".venv", ".venv-prod"] {
+            found.push(root.join(venv).join("bin/gitsquid"));
+            found.push(root.join(venv).join("bin/gitia"));
+        }
     }
+    found.push(PathBuf::from("gitsquid"));
+    // The engine was called gitia before the rename; an older install still works.
     found.push(PathBuf::from("gitia"));
     found
 }
@@ -126,7 +132,7 @@ fn report(window: &WebviewWindow, message: &str, error: Option<&str>, output: &s
         "error": error,
         "output": output,
     });
-    let _ = window.eval(format!("window.gitiaStatus({payload})"));
+    let _ = window.eval(format!("window.gitsquidStatus({payload})"));
 }
 
 pub fn start(app: AppHandle, window: WebviewWindow) {
@@ -134,8 +140,8 @@ pub fn start(app: AppHandle, window: WebviewWindow) {
         report(
             &window,
             "",
-            Some("gitia was not found on this machine."),
-            "Looked for $GITIA_BIN, the project's .venv/bin/gitia, and `gitia` on PATH.\n\
+            Some("gitsquid was not found on this machine."),
+            "Looked for $GITSQUID_BIN, the project's .venv/bin/gitsquid, and `gitsquid` on PATH.\n\
              Install it with ./scripts/install.sh, then reopen this window.",
         );
         return;
@@ -251,18 +257,19 @@ mod tests {
     }
 
     #[test]
-    fn candidates_end_with_the_bare_name_so_path_is_the_last_resort() {
+    fn candidates_end_with_the_bare_names_so_path_is_the_last_resort() {
         let found = candidates();
-        assert_eq!(found.last().unwrap(), &PathBuf::from("gitia"));
-        assert!(found.iter().any(|path| path.ends_with(".venv/bin/gitia")));
+        assert_eq!(found.last().unwrap(), &PathBuf::from("gitia"), "the pre-rename name comes last");
+        assert!(found.contains(&PathBuf::from("gitsquid")));
+        assert!(found.iter().any(|path| path.ends_with(".venv/bin/gitsquid")));
     }
 
     #[test]
     fn an_explicit_binary_wins() {
-        std::env::set_var("GITIA_BIN", "/somewhere/gitia");
+        std::env::set_var("GITSQUID_BIN", "/somewhere/gitsquid");
         let found = candidates();
-        std::env::remove_var("GITIA_BIN");
-        assert_eq!(found.first().unwrap(), &PathBuf::from("/somewhere/gitia"));
+        std::env::remove_var("GITSQUID_BIN");
+        assert_eq!(found.first().unwrap(), &PathBuf::from("/somewhere/gitsquid"));
     }
 
     #[test]

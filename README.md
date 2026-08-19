@@ -1,4 +1,4 @@
-# gitia
+# GitSquid
 
 A repository-local Git client assistant. It indexes one codebase into SQLite, asks one model for
 a diff, validates that diff, applies it, runs your tests, and records every step — so you can
@@ -7,12 +7,12 @@ always see what changed, why, and whether it passed.
 Everything lives inside the repository you point it at. No account, no server, no telemetry.
 
 ```
-gitia ui                                     # the graph interface, on http://127.0.0.1:8756
-gitia init                                   # create .gitia/gitia.db
-gitia index                                  # index this repository
-gitia run "make period_start timezone-aware" # propose → apply → test → record
-gitia log                                    # what happened, newest first
-gitia revert 3                               # undo a change, recorded too
+gitsquid ui                                     # the graph interface, on http://127.0.0.1:8756
+gitsquid init                                   # create .gitsquid/gitsquid.db
+gitsquid index                                  # index this repository
+gitsquid run "make period_start timezone-aware" # propose → apply → test → record
+gitsquid log                                    # what happened, newest first
+gitsquid revert 3                               # undo a change, recorded too
 ```
 
 ---
@@ -22,11 +22,11 @@ gitia revert 3                               # undo a change, recorded too
 Requires **Python 3.12+** and **git** on `PATH`.
 
 ```bash
-./scripts/install.sh          # creates .venv and installs gitia in editable mode
+./scripts/install.sh          # creates .venv and installs gitsquid in editable mode
 cp .env.example .env          # then edit .env
 source .venv/bin/activate
-gitia init && gitia index
-gitia doctor                  # config, data location, model availability
+gitsquid init && gitsquid index
+gitsquid doctor                  # config, data location, model availability
 ```
 
 `ANTHROPIC_API_KEY` in `.env` enables model-generated proposals. Without it the tool still works —
@@ -37,10 +37,10 @@ see [Degraded mode](#degraded-mode).
 | Script | What it does |
 | --- | --- |
 | `./scripts/install.sh` | Create `.venv`, install runtime + dev dependencies. |
-| `./scripts/dev.sh` | Editable install plus a `gitia doctor` smoke check. |
+| `./scripts/dev.sh` | Editable install plus a `gitsquid doctor` smoke check. |
 | `./scripts/test.sh` | Run the whole test suite (`pytest`). |
 | `./scripts/build.sh` | Build the wheel and sdist into `dist/`. |
-| `./scripts/run.sh` | Production-style local run: build, install the wheel into `.venv-prod`, and launch `gitia ui` from it. |
+| `./scripts/run.sh` | Production-style local run: build, install the wheel into `.venv-prod`, and launch `gitsquid ui` from it. |
 
 ---
 
@@ -62,33 +62,34 @@ and can end at `reverted`; illegal transitions are refused by the model layer, n
 
 | Command | Purpose |
 | --- | --- |
-| `gitia init` | Create `.gitia/gitia.db`. |
-| `gitia index [--force]` | Walk the repository, chunk text files, refresh the FTS5 index. |
-| `gitia search QUERY` | Show exactly what retrieval would feed a proposal. |
-| `gitia propose TASK` | Ask for a diff, validate it, record it. Writes nothing to your files. |
-| `gitia show ID` | Diff, rationale, test runs, and audit trail for one change. |
-| `gitia apply ID` | Apply a recorded diff to the working tree. |
-| `gitia test [ID]` | Run `GITIA_TEST_COMMAND` and attach the result to a change. |
-| `gitia revert ID` | Reverse an applied diff. |
-| `gitia log [--status S]` | List recorded changes. |
-| `gitia run TASK` | The whole loop in one command. `--revert-on-failure` undoes a red test run. |
-| `gitia export FILE` / `gitia import FILE` | Portable JSON in and out. |
-| `gitia sample load` / `gitia sample clear` | Labelled demo records, and their deletion. |
-| `gitia doctor` | Configuration, data location, degraded-mode status. |
-| `gitia ui` | Serve the graph interface on `127.0.0.1`: graph, staging, commit, and the change loop. |
+| `gitsquid init` | Create `.gitsquid/gitsquid.db`. |
+| `gitsquid index [--force]` | Walk the repository, chunk text files, refresh the FTS5 index. |
+| `gitsquid search QUERY` | Show exactly what retrieval would feed a proposal. |
+| `gitsquid propose TASK` | Ask for a diff, validate it, record it. Writes nothing to your files. |
+| `gitsquid show ID` | Diff, rationale, test runs, and audit trail for one change. |
+| `gitsquid apply ID` | Apply a recorded diff to the working tree. |
+| `gitsquid test [ID]` | Run `GITSQUID_TEST_COMMAND` and attach the result to a change. |
+| `gitsquid revert ID` | Reverse an applied diff. |
+| `gitsquid log [--status S]` | List recorded changes. |
+| `gitsquid run TASK` | The whole loop in one command. `--revert-on-failure` undoes a red test run. |
+| `gitsquid export FILE` / `gitsquid import FILE` | Portable JSON in and out. |
+| `gitsquid sample load` / `gitsquid sample clear` | Labelled demo records, and their deletion. |
+| `gitsquid doctor` | Configuration, data location, degraded-mode status. |
+| `gitsquid ui` | Serve the graph interface on `127.0.0.1`: graph, staging, commit, and the change loop. |
 
 ---
 
 ## The interface
 
-`gitia ui` serves a single page at `http://127.0.0.1:8756/`. No account, no login, no token —
+`gitsquid ui` serves a single page at `http://127.0.0.1:8756/`. No account, no login, no token —
 it is a local tool for one person. It covers both halves of the loop — the git one and the
 assistant one:
 
 - **Repository switcher** — the chip in the top bar lists every registered repository; open
   another by absolute path and the whole interface follows. Each repository keeps its own
-  database, index, `.env`, and history.
-- **Graph** — a WIP node for uncommitted work sits on top, then gitia changes and git commits on
+  database, index, `.env`, and history. The one you were last on is the one that reopens next
+  time, wherever you launch from; `gitsquid ui --repo .` opens the current folder instead.
+- **Graph** — a WIP node for uncommitted work sits on top, then GitSquid changes and git commits on
   one timeline. The lanes are laid out over the rows actually on screen and painted as one drawing,
   so every line joins the next row; a branch keeps one colour from tip to root, merges leave one
   curve per parent, and changes ride the lane below them as a diamond coloured by status. Filtering
@@ -142,9 +143,29 @@ remote operation fails with a readable message instead of hanging on a password 
 
 ---
 
+## The desktop app
+
+`desktop/` is a Tauri shell: a native window that starts `gitsquid ui` on a free loopback port and
+shows it. It needs the `gitsquid` command on the machine — it looks at `$GITSQUID_BIN`, then the
+project's `.venv/bin`, then `PATH`.
+
+```bash
+cd desktop && npm install
+npm run dev                    # the window, against the local engine
+npm run build:macos            # .app and .dmg
+npm run build:macos:universal  # the same, as a universal binary
+npm run build:windows          # .msi and .exe
+npm run build:linux            # .deb and .AppImage
+```
+
+Each bundle is built by the operating system it targets — Tauri does not cross-compile a desktop
+bundle, and running the wrong one tells you so immediately instead of failing inside a Rust build.
+
+---
+
 ## Architecture
 
-`src/gitia/`, one responsibility per module:
+`src/gitsquid/`, one responsibility per module:
 
 | Module | Responsibility |
 | --- | --- |
@@ -179,12 +200,16 @@ network.
 
 | What | Where |
 | --- | --- |
-| Database | `<repo>/.gitia/gitia.db` (plus `-wal` / `-shm`), one per repository |
+| Database | `<repo>/.gitsquid/gitsquid.db` (plus `-wal` / `-shm`), one per repository |
 | Secrets | `<repo>/.env`, read only by this app, never written to the database |
-| Repository list | `~/.config/gitia/repos.json` — paths only, override with `GITIA_CONFIG_DIR` |
-| Exports | Wherever you point `gitia export` |
+| Repository list | `~/.config/gitsquid/repos.json` — paths only, override with `GITSQUID_CONFIG_DIR` |
+| Exports | Wherever you point `gitsquid export` |
 
-`.gitia/` contains a `.gitignore` with `*`, so it never lands in a commit. Nothing is written
+The tool was called gitia before, so a repository indexed then keeps its `.gitia/gitia.db` and is
+used as it is; `GITIA_*` variables and `gitia-export` files are still read. Nothing needs
+migrating.
+
+`.gitsquid/` contains a `.gitignore` with `*`, so it never lands in a commit. Nothing is written
 outside the repository, and nothing leaves the machine except the excerpts sent with a proposal
 request when you have an API key configured.
 
@@ -193,36 +218,36 @@ request when you have an API key configured.
 The database is a single file. Back it up with a copy while no command is running:
 
 ```bash
-sqlite3 .gitia/gitia.db ".backup '/path/to/gitia-backup.db'"   # safe while in use
-gitia export ~/backups/gitia-$(date +%F).json                  # portable, human-readable
+sqlite3 .gitsquid/gitsquid.db ".backup '/path/to/gitsquid-backup.db'"   # safe while in use
+gitsquid export ~/backups/gitsquid-$(date +%F).json                  # portable, human-readable
 ```
 
-Restore by copying the file back, or with `gitia import` — import skips changes already recorded,
+Restore by copying the file back, or with `gitsquid import` — import skips changes already recorded,
 so re-importing the same file twice is harmless.
 
-To delete everything gitia knows: `rm -rf .gitia/`. To delete only the demo rows:
-`gitia sample clear`.
+To delete everything GitSquid knows: `rm -rf .gitsquid/`. To delete only the demo rows:
+`gitsquid sample clear`.
 
 ---
 
 ## Permissions
 
-gitia asks for nothing it does not need:
+GitSquid asks for nothing it does not need:
 
 - **Read** every file `git ls-files` reports as tracked or untracked-but-not-ignored — your
-  `.gitignore` decides what gitia sees. Binaries, files over
-  `GITIA_MAX_FILE_BYTES`, and credential-shaped files (`.env*`, `*.pem`, `*.key`, `id_rsa`,
+  `.gitignore` decides what GitSquid sees. Binaries, files over
+  `GITSQUID_MAX_FILE_BYTES`, and credential-shaped files (`.env*`, `*.pem`, `*.key`, `id_rsa`,
   `.netrc`, …) are skipped and never indexed or sent.
 - **Write** only through git itself — `apply`, `add`, `checkout`, `commit`, `branch`, `tag`,
   `merge`, `rebase`, `cherry-pick`, `revert`, `reset`, `stash`, `push` — only inside the
   repository, and only after you confirm. Every path — in a patch, in a hunk, or from the
   interface — is rejected before it reaches git if it is absolute, contains `..`, or points into
-  `.git/` or `.gitia/`; every branch, tag and commit id is validated the same way, so nothing from
+  `.git/` or `.gitsquid/`; every branch, tag and commit id is validated the same way, so nothing from
   the interface is ever interpreted as a git option. Anything destructive — discard, hard reset,
   force push, force delete, dropping a stash — asks first, and lands in the audit trail.
-- **Execute** exactly one command — the `GITIA_TEST_COMMAND` you configured — in the repository
+- **Execute** exactly one command — the `GITSQUID_TEST_COMMAND` you configured — in the repository
   directory, with a timeout.
-- **Listen** on `127.0.0.1` only while `gitia ui` is running, and only for requests whose `Host`
+- **Listen** on `127.0.0.1` only while `gitsquid ui` is running, and only for requests whose `Host`
   header is a loopback name.
 - **Network** only to `api.anthropic.com`, only during `propose` / `run`, and only when
   `ANTHROPIC_API_KEY` is set.
@@ -236,12 +261,12 @@ No analytics, no telemetry, no third-party accounts, no background process.
 Without `ANTHROPIC_API_KEY`, model-generated proposals are unavailable. Nothing else changes:
 
 ```bash
-gitia propose "fix the rounding bug" --patch-file fix.diff
+gitsquid propose "fix the rounding bug" --patch-file fix.diff
 ```
 
 Indexing, search, validation, `git apply`, test runs, the audit trail, revert, export, and import
 all work identically; the change is recorded with source `patch-file` instead of `model`.
-`gitia doctor` tells you which mode you are in. This is the only difference — the tool is a
+`gitsquid doctor` tells you which mode you are in. This is the only difference — the tool is a
 recording and verification harness first, and a model client second.
 
 ---
@@ -250,7 +275,7 @@ recording and verification harness first, and a model client second.
 
 - Every state prints a text token (`[ok]`, `[fail]`, `[warn]`, `[invalid]`, `[empty]`,
   `[working]`) as well as a colour, so nothing depends on colour perception.
-- `NO_COLOR=1` (or `GITIA_NO_COLOR=1`) disables colour; `--plain` prints diffs without syntax
+- `NO_COLOR=1` (or `GITSQUID_NO_COLOR=1`) disables colour; `--plain` prints diffs without syntax
   highlighting for screen readers and for piping.
 - No mouse, no TUI focus traps: every action is one command. Confirmations are explicit `y/N`
   prompts with a safe default, and `--yes` skips them for scripted use.
@@ -295,7 +320,7 @@ Stated plainly, because some of them are deliberate:
   or Abort from the bar.
 - Staging is per file or per hunk, never per line.
 - Pull is fast-forward only, on purpose: no implicit merge commit behind your back.
-- Credentials are git's business. gitia never asks for or stores one, and a remote operation that
+- Credentials are git's business. GitSquid never asks for or stores one, and a remote operation that
   would need an interactive prompt fails with an explanation instead of hanging.
 - No blame view, no side-by-side diff, no graph search beyond the loaded window.
 - A repository with no commits shows an empty graph — that is the empty state, not an error.
