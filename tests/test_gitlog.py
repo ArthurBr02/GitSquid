@@ -84,6 +84,29 @@ class TestCommitDetail:
         assert detail["short"] == sha[:7]
         assert detail["date"].startswith("20")
 
+    def test_a_commit_without_any_ref_still_loads(self, repo):
+        """The separator counts as whitespace in Python: stripping a record loses a field."""
+        commit_file(repo, "suite.py", "X = 1\n", "sans ref")
+        older = git(repo, "rev-parse", "HEAD~1").stdout.strip()
+
+        detail = gitlog.commit_detail(repo, older)
+        assert detail["refs"] == []
+        assert detail["subject"] == "initial"
+        assert detail["files"]
+
+    def test_a_merge_shows_what_it_brought_in(self, repo):
+        base = git(repo, "rev-parse", "HEAD").stdout.strip()
+        git(repo, "checkout", "-q", "-b", "cote", base)
+        commit_file(repo, "apporte.py", "A = 1\n", "travail de cote")
+        git(repo, "checkout", "-q", "main")
+        commit_file(repo, "principal.py", "M = 1\n", "travail principal")
+        git(repo, "merge", "-q", "--no-ff", "cote", "-m", "fusion")
+
+        detail = gitlog.commit_detail(repo, git(repo, "rev-parse", "HEAD").stdout.strip())
+        assert detail["merge"] is True
+        assert [file["path"] for file in detail["files"]] == ["apporte.py"]
+        assert "apporte.py" in detail["diff"]
+
     def test_an_unknown_commit_is_reported(self, repo):
         with pytest.raises(ValueError, match="No such commit"):
             gitlog.commit_detail(repo, "0" * 40)

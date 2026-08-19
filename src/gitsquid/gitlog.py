@@ -92,21 +92,28 @@ def commit_detail(repo: Path, sha: str) -> dict:
     """Body and touched files for one commit. `sha` is validated before it reaches git."""
     if not sha or len(sha) > 64 or not all(char in "0123456789abcdefABCDEF" for char in sha):
         raise ValueError("Not a commit id.")
-    header = run(repo, ["show", "-s", f"--format={SEP.join(['%H', '%an', '%aI', '%s', '%D'])}", sha])
-    fields = header.stdout.strip().split(SEP)
-    if header.returncode != 0 or len(fields) < 5:
+    header = run(repo, ["show", "-s", f"--format={SEP.join(['%H', '%P', '%an', '%aI', '%s', '%D'])}", sha])
+    # Never str.strip() a record: Python counts the separator itself as whitespace, so a
+    # commit that carries no ref would lose its last field.
+    fields = header.stdout.rstrip("\n").split(SEP)
+    if header.returncode != 0 or len(fields) < 6:
         raise ValueError("No such commit.")
+    parents = fields[1].split()
+    # A merge shows no diff at all by default; what a reader wants to see is what it brought in.
+    view = ["-m", "--first-parent"] if len(parents) > 1 else []
     body = run(repo, ["show", "-s", "--format=%B", sha]).stdout.strip()
-    stat = run(repo, ["show", "--stat", "--oneline", "--format=", sha]).stdout.strip()
-    files = run(repo, ["show", "--name-status", "--format=", sha]).stdout.strip()
-    patch = run(repo, ["show", "--no-color", "--format=", sha]).stdout
+    stat = run(repo, ["show", *view, "--stat", "--format=", sha]).stdout.strip()
+    files = run(repo, ["show", *view, "--name-status", "--format=", sha]).stdout.strip()
+    patch = run(repo, ["show", *view, "--no-color", "--format=", sha]).stdout
     return {
         "sha": fields[0],
         "short": fields[0][:7],
-        "author": fields[1],
-        "date": fields[2],
-        "subject": fields[3],
-        "refs": [ref.strip() for ref in fields[4].split(",") if ref.strip()],
+        "parents": parents,
+        "merge": len(parents) > 1,
+        "author": fields[2],
+        "date": fields[3],
+        "subject": fields[4],
+        "refs": [ref.strip() for ref in fields[5].split(",") if ref.strip()],
         "body": body,
         "stat": stat,
         "diff": patch[:MAX_PATCH_CHARS],
