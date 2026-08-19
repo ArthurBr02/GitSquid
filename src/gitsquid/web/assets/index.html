@@ -15,106 +15,51 @@
     <span class="brand-name">GitSquid</span>
   </div>
   <button type="button" class="repo-chip" id="repo-chip" aria-haspopup="dialog"
-    title="Switch repository">
+    title="Switch repository (O)">
     <span class="repo-name" id="repo-name">—</span>
     <span class="branch" id="repo-branch"></span>
     <span class="chevron" aria-hidden="true">▾</span>
   </button>
+
   <div class="toolbar" role="toolbar" aria-label="Repository actions">
-    <button type="button" class="btn" id="btn-propose" accesskey="n">
-      <span aria-hidden="true">✚</span> New change <kbd>N</kbd>
-    </button>
-    <span class="toolbar-group">
-      <button type="button" class="btn ghost" id="btn-fetch" title="git fetch --all --prune">Fetch</button>
-      <button type="button" class="btn ghost" id="btn-pull" title="git pull --ff-only">
+    <span class="btn-group">
+      <button type="button" class="btn ghost" id="btn-fetch" title="Fetch from the remote">Fetch</button>
+      <button type="button" class="btn ghost" id="btn-pull" title="Pull, fast-forward only">
         Pull <span class="badge" id="badge-behind" hidden></span>
       </button>
-      <button type="button" class="btn ghost" id="btn-push" title="git push">
+      <button type="button" class="btn ghost" id="btn-push" title="Push — right click for a force push">
         Push <span class="badge" id="badge-ahead" hidden></span>
       </button>
     </span>
-    <button type="button" class="btn ghost" id="btn-index">Re-index <kbd>I</kbd></button>
-    <button type="button" class="btn ghost" id="btn-export">Export</button>
-    <button type="button" class="btn ghost" id="btn-import">Import</button>
-    <button type="button" class="icon-btn" id="btn-help" title="Keyboard shortcuts"
-      aria-label="Keyboard shortcuts" aria-haspopup="dialog">?</button>
+    <button type="button" class="btn" id="btn-propose" title="Ask for a change (N)">
+      <span aria-hidden="true">✚</span> New change
+    </button>
+    <button type="button" class="icon-btn" id="btn-more" aria-haspopup="menu"
+      aria-label="More actions" title="More actions">⋯</button>
   </div>
+
   <div class="model-state" id="model-state" role="status" aria-live="polite"></div>
 </header>
 
 <div class="op-bar" id="op-bar" role="alert" hidden></div>
 
 <main class="layout">
-  <nav class="sidebar" aria-label="Filters and repository details">
-    <section class="panel">
-      <h2 class="panel-title">Changes</h2>
-      <ul class="filters" id="filters" role="listbox" aria-label="Filter changes by status"></ul>
-    </section>
-
-    <section class="panel">
-      <h2 class="panel-title">Working tree</h2>
-      <button type="button" class="wip-button" id="btn-wip">
-        <span class="wip-label">Uncommitted changes</span>
-        <span class="wip-counts" id="wip-counts"></span>
-      </button>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2 class="panel-title">Branches</h2>
-        <button type="button" class="icon-btn" id="btn-new-branch" title="Create a branch"
-          aria-label="Create a branch">+</button>
-      </div>
-      <ul class="branches" id="branches"></ul>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2 class="panel-title">Remote branches</h2>
-        <button type="button" class="icon-btn" id="btn-fetch-side" title="Fetch from the remote"
-          aria-label="Fetch from the remote">⟳</button>
-      </div>
-      <ul class="branches remote" id="remote-branches"></ul>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2 class="panel-title">Tags</h2>
-        <button type="button" class="icon-btn" id="btn-new-tag" title="Tag the current commit"
-          aria-label="Tag the current commit">+</button>
-      </div>
-      <ul class="tags" id="tags"></ul>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2 class="panel-title">Stashes</h2>
-        <button type="button" class="icon-btn" id="btn-stash" title="Stash the working tree"
-          aria-label="Stash the working tree">⤓</button>
-      </div>
-      <ul class="stashes" id="stashes"></ul>
-    </section>
-
-    <section class="panel">
-      <h2 class="panel-title">Index</h2>
-      <dl class="stats" id="index-stats"></dl>
-      <div class="sample-actions">
-        <button type="button" class="btn tiny ghost" id="btn-sample-load">Load samples</button>
-        <button type="button" class="btn tiny ghost" id="btn-sample-clear">Clear samples</button>
-      </div>
-    </section>
-  </nav>
+  <nav class="sidebar" id="sidebar" aria-label="Repository contents"></nav>
 
   <div class="resizer" id="resize-left" role="separator" aria-orientation="vertical"
     aria-label="Resize the sidebar" tabindex="0"></div>
 
   <section class="graph-pane" id="graph" aria-label="Change and commit graph" tabindex="-1">
     <div class="pane-head">
-      <h2>Graph</h2>
+      <button type="button" class="filter-chip" id="btn-filter" aria-haspopup="menu">
+        <span id="filter-label">Everything</span>
+        <span class="chevron" aria-hidden="true">▾</span>
+      </button>
       <label class="search-label" for="search">
-        <span class="visually-hidden">Filter rows</span>
-        <input type="search" id="search" placeholder="Filter by task, message, author…  ( / )" autocomplete="off">
+        <span class="visually-hidden">Search the graph</span>
+        <input type="search" id="search" placeholder="Search a message, an author, a file…  ( / )" autocomplete="off">
       </label>
+      <span class="pane-count" id="row-count"></span>
     </div>
     <div class="rows-wrap" id="rows-wrap">
       <svg class="graph-canvas" id="graph-canvas" aria-hidden="true" focusable="false"></svg>
@@ -129,7 +74,8 @@
   <aside class="detail" id="detail" aria-label="Selected item" tabindex="-1">
     <div class="empty-state">
       <h2>Nothing selected</h2>
-      <p>Pick a change or a commit in the graph. Use <kbd>↑</kbd> <kbd>↓</kbd> to move and <kbd>Enter</kbd> to open.</p>
+      <p>Pick a row in the graph. <kbd>↑</kbd> <kbd>↓</kbd> moves, and a right click opens what
+      you can do with it.</p>
     </div>
   </aside>
 </main>
@@ -137,6 +83,7 @@
 <footer class="statusbar">
   <span id="status-text" role="status" aria-live="polite">Ready.</span>
   <span class="spacer"></span>
+  <span class="index-stat" id="index-stat"></span>
   <span class="db-path" id="db-path"></span>
 </footer>
 
@@ -181,22 +128,19 @@
   </form>
 </dialog>
 
-<dialog class="modal" id="help-modal" aria-labelledby="help-title">
+<dialog class="modal small" id="help-modal" aria-labelledby="help-title">
   <h2 id="help-title">Keyboard</h2>
-  <p class="hint">Right-click a commit, a branch, a tag, a stash or a file for its actions.</p>
+  <p class="hint">Every action also sits on a right click — on a commit, a branch, a tag, a stash
+  or a file.</p>
   <dl class="shortcuts">
-    <dt><kbd>N</kbd></dt><dd>Propose a new change</dd>
-    <dt><kbd>O</kbd></dt><dd>Open or add a repository</dd>
-    <dt><kbd>W</kbd></dt><dd>Open the uncommitted changes</dd>
-    <dt><kbd>I</kbd></dt><dd>Re-index the repository</dd>
-    <dt><kbd>/</kbd></dt><dd>Filter the graph</dd>
-    <dt><kbd>↑</kbd> <kbd>↓</kbd> / <kbd>j</kbd> <kbd>k</kbd></dt><dd>Move through the graph</dd>
+    <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move through the graph</dd>
     <dt><kbd>Enter</kbd></dt><dd>Focus the detail panel</dd>
-    <dt><kbd>Esc</kbd></dt><dd>Leave a field or close a dialog</dd>
-    <dt><kbd>Shift</kbd>+<kbd>F10</kbd> / <kbd>≣</kbd></dt><dd>Open the menu for the selected row</dd>
-    <dt><kbd>T</kbd></dt><dd>Tag the current commit</dd>
-    <dt><kbd>S</kbd></dt><dd>Stash the working tree</dd>
-    <dt><kbd>B</kbd></dt><dd>Create a branch</dd>
+    <dt><kbd>Shift</kbd>+<kbd>F10</kbd></dt><dd>Menu of the selected row</dd>
+    <dt><kbd>/</kbd></dt><dd>Search</dd>
+    <dt><kbd>N</kbd></dt><dd>New change</dd>
+    <dt><kbd>W</kbd></dt><dd>Uncommitted changes</dd>
+    <dt><kbd>B</kbd> <kbd>T</kbd> <kbd>S</kbd></dt><dd>Branch · tag · stash</dd>
+    <dt><kbd>O</kbd></dt><dd>Repositories</dd>
     <dt><kbd>?</kbd></dt><dd>This dialog</dd>
   </dl>
   <menu class="modal-actions">

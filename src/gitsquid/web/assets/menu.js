@@ -69,7 +69,7 @@ const Menu = (() => {
       }
       const button = document.createElement("button");
       button.type = "button";
-      button.className = `menu-item${item.danger ? " danger" : ""}`;
+      button.className = `menu-item${item.danger ? " danger" : ""}${item.className ? ` ${item.className}` : ""}`;
       button.setAttribute("role", "menuitem");
       button.disabled = Boolean(item.disabled);
       if (item.title) button.title = item.title;

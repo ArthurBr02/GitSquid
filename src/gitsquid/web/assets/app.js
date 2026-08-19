@@ -21,6 +21,7 @@ const state = {
   selectedFile: null,
   fileDiff: null,
   commitMessage: "",
+  counts: {},
   amend: false,
   busy: false,
 };
@@ -220,6 +221,9 @@ function renderRows() {
   const { gap, width } = Graph.measure(laid.columns, budget);
 
   wrap.style.setProperty("--lane-width", `${width}px`);
+  $("row-count").textContent = visible.length === state.rows.length
+    ? `${visible.length} row${visible.length === 1 ? "" : "s"}`
+    : `${visible.length} of ${state.rows.length}`;
   list.setAttribute("aria-activedescendant", state.selected ? `row-${state.selected}` : "");
 
   const emptyNote = $("graph-empty");
@@ -272,7 +276,13 @@ function renderRows() {
         el("span", { class: "sha", text: row.short }),
       );
     }
-    side.append(el("span", { class: "relative when", text: relativeTime(row.when) }));
+    side.append(
+      el("span", { class: "relative when", text: relativeTime(row.when) }),
+      el("button", {
+        type: "button", class: "row-menu", "aria-label": "Actions for this row",
+        onclick: (event) => { event.stopPropagation(); select(row.key); Menu.show(event, rowMenu(row)); },
+      }, ["⋯"]),
+    );
     item.append(main, side);
     list.append(item);
   }
@@ -442,187 +452,157 @@ function rowMenu(row) {
   return row.kind === "change" ? changeMenu(row) : commitMenu(row);
 }
 
-/* ---------- sidebar ---------- */
+/* ---------- sidebar: collapsible sections of one row component ---------- */
+
+const FILTER_LABELS = {
+  all: "Everything", commits: "Commits", proposed: "Proposed", applied: "Applied",
+  verified: "Verified", failed: "Failed", reverted: "Reverted",
+};
+
+function remember(key, value) {
+  try { localStorage.setItem(`gitsquid.${key}`, value); } catch { /* private mode */ }
+}
+
+function recall(key, fallback) {
+  try { return localStorage.getItem(`gitsquid.${key}`) ?? fallback; } catch { return fallback; }
+}
+
+/* A row is a row: branches, tags, stashes and the working tree all use this one. */
+function treeRow({ id, label, meta, icon, sub, current, className = "", onclick, menu }) {
+  const node = el("div", {
+    id,
+    class: `tree-row ${className}`,
+    role: "button",
+    tabindex: "0",
+    "aria-current": current ? "true" : undefined,
+    onclick,
+    onkeydown: (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onclick(); }
+    },
+  }, [
+    icon ? el("span", { class: "tree-icon", "aria-hidden": "true", text: icon }) : null,
+    el("span", { class: "tree-label", title: label }, [
+      label,
+      sub ? el("span", { class: "sub" }, sub) : null,
+    ]),
+    meta ? el("span", { class: "tree-meta", text: meta }) : null,
+    menu ? el("button", {
+      type: "button", class: "row-menu", "aria-label": `Actions for ${label}`,
+      onclick: (event) => { event.stopPropagation(); Menu.show(event, menu()); },
+    }, ["⋯"]) : null,
+  ]);
+  return menu ? Menu.attach(node, menu) : node;
+}
+
+function section(key, { title, count, action, rows, empty }) {
+  const open = recall(`section.${key}`, "open") === "open";
+  const head = el("summary", { class: "section-head" }, [
+    el("span", { class: "caret", "aria-hidden": "true", text: "▸" }),
+    el("span", { class: "section-title", text: title }),
+    count !== undefined ? el("span", { class: "section-count", text: String(count) }) : null,
+    action ? el("button", {
+      type: "button", class: "icon-btn section-action", title: action.title,
+      "aria-label": action.title,
+      onclick: (event) => { event.preventDefault(); event.stopPropagation(); action.run(); },
+    }, [action.label]) : null,
+  ]);
+  const body = el("div", { class: "section-body" }, rows.length ? rows : [
+    el("p", { class: "tree-empty", text: empty }),
+  ]);
+  const node = el("details", { class: "section", open: open || undefined, "data-key": key }, [head, body]);
+  node.addEventListener("toggle", () => remember(`section.${key}`, node.open ? "open" : "closed"));
+  return node;
+}
 
 function renderSidebar() {
-  const { repo, config, index, counts, total_changes: total, samples } = state.data.state;
-  $("repo-name").textContent = repo.name;
-  $("repo-branch").textContent = repo.branch;
-  $("db-path").textContent = config.database;
-
-  const model = clear($("model-state"));
-  model.append(
-    el("span", { class: `dot ${config.model_available ? "on" : "off"}`, "aria-hidden": "true" }),
-    el("span", {
-      text: config.model_available
-        ? `${config.model} · effort ${config.effort}`
-        : "degraded mode — no API key, paste diffs instead",
-    }),
-  );
-
-  const filters = clear($("filters"));
-  const entries = [
-    ["all", "Everything", total + state.data.graph.commits.length],
-    ...Object.entries(counts).map(([name, count]) => [name, name[0].toUpperCase() + name.slice(1), count]),
-    ["commits", "Commits", state.data.graph.commits.length],
-  ];
-  for (const [key, label, count] of entries) {
-    filters.append(el("li", {}, [
-      el("button", {
-        type: "button",
-        role: "option",
-        "aria-selected": state.filter === key ? "true" : "false",
-        onclick: () => { state.filter = key; renderSidebar(); renderRows(); },
-      }, [
-        el("span", { class: "swatch", style: `background:${STATUS_COLORS[key] || "#6b7488"}` }),
-        el("span", { text: label }),
-        el("span", { class: "count", text: String(count) }),
-      ]),
-    ]));
-  }
-
-  const wipButton = $("btn-wip");
-  wipButton.setAttribute("aria-current", state.selected === "wip" ? "true" : "false");
-  wipButton.disabled = state.worktree.files.length === 0;
-  const counts_ = clear($("wip-counts"));
-  if (!state.worktree.files.length) {
-    counts_.append(el("span", { text: "clean" }));
-  } else {
-    counts_.append(
-      el("span", { class: state.worktree.staged ? "on" : "", text: `${state.worktree.staged} staged` }),
-      el("span", { text: ` · ${state.worktree.unstaged} unstaged` }),
-    );
-  }
-
-  const tracking = repo.tracking || { ahead: 0, behind: 0, upstream: null };
+  const { repo } = state.data.state;
+  const sidebar = clear($("sidebar"));
+  const files = state.worktree.files;
   const hasRemote = (repo.remotes || []).length > 0;
-  for (const [id, count] of [["badge-ahead", tracking.ahead], ["badge-behind", tracking.behind]]) {
-    const badge = $(id);
-    badge.hidden = !count;
-    badge.textContent = String(count || "");
-  }
-  for (const id of ["btn-fetch", "btn-pull", "btn-push"]) {
-    $(id).disabled = !hasRemote;
-    $(id).title = hasRemote ? $(id).title : "This repository has no remote configured.";
-  }
 
-  renderStashes(repo);
-  renderBranches(repo);
-  renderRemoteBranches(repo);
-  renderTags(repo);
-  renderOperation(repo);
+  sidebar.append(section("worktree", {
+    title: "Working tree",
+    rows: [treeRow({
+      id: "wip-row",
+      label: files.length ? "Uncommitted changes" : "Clean",
+      icon: "◆",
+      className: files.length ? "" : "quiet",
+      current: state.selected === "wip",
+      sub: files.length
+        ? [el("span", { class: state.worktree.staged ? "on" : "", text: `${state.worktree.staged} staged` }),
+           ` · ${state.worktree.unstaged} unstaged`]
+        : ["nothing to commit"],
+      onclick: () => { if (files.length) select("wip"); },
+      menu: files.length ? wipMenu : null,
+    })],
+    empty: "",
+  }));
 
-  const stats = clear($("index-stats"));
-  for (const [label, value] of [
-    ["Files", index.files.toLocaleString()],
-    ["Chunks", index.chunks.toLocaleString()],
-    ["Changes", String(total)],
-    ["Samples", String(samples)],
-    ["Budget", `${(config.context_budget / 1000).toFixed(0)}k chars`],
-  ]) {
-    stats.append(el("dt", { text: label }), el("dd", { text: value }));
-  }
-}
-
-function listItem(children, menu) {
-  return Menu.attach(el("li", { tabindex: "-1" }, children), menu);
-}
-
-function renderStashes(repo) {
-  const stashes = clear($("stashes"));
-  const entries = repo.stashes || [];
-  if (!entries.length) {
-    stashes.append(el("li", {}, [el("span", { class: "empty", text: "No stash." })]));
-  }
-  for (const stash of entries) {
-    stashes.append(listItem([
-      el("span", { class: "subject", title: `${stash.ref} — ${stash.subject}`, text: stash.subject }),
-      el("span", { class: "age", text: stash.age }),
-      el("span", { class: "row-act" }, [
-        el("button", {
-          type: "button", class: "btn tiny ghost", "aria-label": `Restore ${stash.ref}`,
-          onclick: () => worktreeAction("stash-pop", null, { ref: stash.ref }), text: "Pop",
-        }),
-        el("button", {
-          type: "button", class: "btn tiny ghost", "aria-label": `Actions for ${stash.ref}`,
-          onclick: (event) => Menu.show(event, stashMenu(stash)), text: "…",
-        }),
-      ]),
-    ], () => stashMenu(stash)));
-  }
-}
-
-function renderBranches(repo) {
-  const branches = clear($("branches"));
-  if (!repo.branches.length) {
-    branches.append(el("li", {}, [el("span", { class: "empty", text: "No branch yet." })]));
-  }
-  for (const branch of repo.branches) {
-    const isCurrent = branch.name === repo.branch;
-    branches.append(listItem([
-      el("button", {
-        type: "button",
-        class: `name ${isCurrent ? "current" : ""}`,
-        "aria-current": isCurrent ? "true" : "false",
-        title: isCurrent ? "Current branch" : `Switch to ${branch.name}`,
+  sidebar.append(section("branches", {
+    title: "Branches",
+    count: repo.branches.length,
+    action: { label: "+", title: "Create a branch", run: createBranch },
+    empty: "No branch yet.",
+    rows: repo.branches.map((branch) => {
+      const isCurrent = branch.name === repo.branch;
+      return treeRow({
+        label: branch.name,
+        meta: branch.sha,
+        icon: isCurrent ? "●" : "○",
+        className: isCurrent ? "current" : "",
         onclick: () => { if (!isCurrent) switchBranch(branch.name); },
-      }, [
-        el("span", { text: branch.name }),
-        el("span", { class: "count", text: branch.sha }),
-      ]),
-      el("span", { class: "row-act" }, [
-        el("button", {
-          type: "button", class: "btn tiny ghost", "aria-label": `Actions for ${branch.name}`,
-          onclick: (event) => Menu.show(event, branchMenu(branch, isCurrent)), text: "…",
-        }),
-      ]),
-    ], () => branchMenu(branch, isCurrent)));
-  }
-}
+        menu: () => branchMenu(branch, isCurrent),
+      });
+    }),
+  }));
 
-function renderRemoteBranches(repo) {
-  const list = clear($("remote-branches"));
-  const entries = repo.remote_branches || [];
-  if (!entries.length) {
-    list.append(el("li", {}, [el("span", { class: "empty", text: (repo.remotes || []).length ? "Nothing fetched yet." : "No remote." })]));
-  }
-  for (const entry of entries) {
-    list.append(listItem([
-      el("button", {
-        type: "button", class: "name", title: `Check out ${entry.name}`,
-        onclick: () => worktreeAction("checkout-remote", null, { branch: entry.name }),
-      }, [
-        el("span", { text: entry.name }),
-        el("span", { class: "count", text: entry.tracked ? "tracked" : entry.sha }),
-      ]),
-      el("span", { class: "row-act" }, [
-        el("button", {
-          type: "button", class: "btn tiny ghost", "aria-label": `Actions for ${entry.name}`,
-          onclick: (event) => Menu.show(event, remoteBranchMenu(entry)), text: "…",
-        }),
-      ]),
-    ], () => remoteBranchMenu(entry)));
-  }
-}
+  const remote = repo.remote_branches || [];
+  sidebar.append(section("remotes", {
+    title: "Remote branches",
+    count: remote.length,
+    action: hasRemote ? { label: "⟳", title: "Fetch from the remote", run: () => worktreeAction("fetch", null) } : null,
+    empty: hasRemote ? "Nothing fetched yet." : "No remote configured.",
+    rows: remote.map((entry) => treeRow({
+      label: entry.name,
+      meta: entry.tracked ? "tracked" : entry.sha,
+      icon: "⇅",
+      onclick: () => worktreeAction("checkout-remote", null, { branch: entry.name }),
+      menu: () => remoteBranchMenu(entry),
+    })),
+  }));
 
-function renderTags(repo) {
-  const list = clear($("tags"));
-  const entries = repo.tags || [];
-  if (!entries.length) {
-    list.append(el("li", {}, [el("span", { class: "empty", text: "No tag." })]));
-  }
-  for (const tag of entries) {
-    list.append(listItem([
-      el("span", { class: "subject", title: tag.subject || tag.name, text: tag.name }),
-      el("span", { class: "age", text: tag.sha }),
-      el("span", { class: "row-act" }, [
-        el("button", {
-          type: "button", class: "btn tiny ghost", "aria-label": `Actions for ${tag.name}`,
-          onclick: (event) => Menu.show(event, tagMenu(tag)), text: "…",
-        }),
-      ]),
-    ], () => tagMenu(tag)));
-  }
+  const tags = repo.tags || [];
+  sidebar.append(section("tags", {
+    title: "Tags",
+    count: tags.length,
+    action: { label: "+", title: "Tag the current commit", run: createTag },
+    empty: "No tag.",
+    rows: tags.map((tag) => treeRow({
+      label: tag.name,
+      meta: tag.sha,
+      icon: "⚑",
+      onclick: () => openCommit(tag.sha),
+      menu: () => tagMenu(tag),
+    })),
+  }));
+
+  const stashes = repo.stashes || [];
+  sidebar.append(section("stashes", {
+    title: "Stashes",
+    count: stashes.length,
+    action: { label: "⤓", title: "Stash the working tree", run: stashWorkingTree },
+    empty: "No stash.",
+    rows: stashes.map((stash) => treeRow({
+      label: stash.subject,
+      meta: stash.age,
+      icon: "≡",
+      onclick: () => worktreeAction("stash-apply", null, { ref: stash.ref }),
+      menu: () => stashMenu(stash),
+    })),
+  }));
+
+  renderChrome();
+  renderOperation(repo);
 }
 
 /* A merge, rebase, cherry-pick or revert git stopped in the middle of: the one state where
@@ -646,10 +626,78 @@ function renderOperation(repo) {
     }) : null,
     el("button", {
       type: "button", class: "btn tiny danger",
-      onclick: () => { if (confirm(`Abort the ${operation.kind}? The repository goes back where it started.`)) worktreeAction("abort", null); },
+      onclick: () => {
+        if (confirm(`Abort the ${operation.kind}? The repository goes back where it started.`)) {
+          worktreeAction("abort", null);
+        }
+      },
       text: "Abort",
     }),
   );
+}
+
+/* The top bar, the filter chip and the status bar: everything that frames the graph. */
+function renderChrome() {
+  const { repo, config, index, counts, total_changes: total } = state.data.state;
+  $("repo-name").textContent = repo.name;
+  $("repo-branch").textContent = repo.branch;
+  $("db-path").textContent = config.database;
+  $("db-path").title = config.database;
+  $("index-stat").textContent = index.files
+    ? `${index.files.toLocaleString()} files · ${index.chunks.toLocaleString()} chunks indexed`
+    : "not indexed yet";
+
+  const model = clear($("model-state"));
+  model.append(
+    el("span", { class: `dot ${config.model_available ? "on" : "off"}`, "aria-hidden": "true" }),
+    el("span", { text: config.model_available ? config.model : "no API key" }),
+  );
+  model.title = config.model_available
+    ? `Proposals go to ${config.model} (effort ${config.effort}).`
+    : `No ANTHROPIC_API_KEY in ${repo.path}/.env — GitSquid still validates, applies, tests and `
+      + "records a diff you paste yourself.";
+
+  $("filter-label").textContent = FILTER_LABELS[state.filter] || "Everything";
+  $("btn-filter").classList.toggle("on", state.filter !== "all");
+
+  const tracking = repo.tracking || { ahead: 0, behind: 0 };
+  const hasRemote = (repo.remotes || []).length > 0;
+  for (const [id, count] of [["badge-ahead", tracking.ahead], ["badge-behind", tracking.behind]]) {
+    const badge = $(id);
+    badge.hidden = !count;
+    badge.textContent = String(count || "");
+  }
+  for (const id of ["btn-fetch", "btn-pull", "btn-push"]) {
+    $(id).disabled = !hasRemote;
+  }
+
+  state.counts = { ...counts, all: total + state.data.graph.commits.length,
+    commits: state.data.graph.commits.length };
+}
+
+function filterMenu() {
+  return Object.entries(FILTER_LABELS).map(([key, label]) => ({
+    label,
+    hint: String((state.counts || {})[key] ?? ""),
+    className: key === state.filter ? "on" : "",
+    run: () => { state.filter = key; renderRows(); renderChrome(); },
+  }));
+}
+
+/* Everything that is neither a git verb nor the change loop: rare, and out of the way. */
+function moreMenu() {
+  const samples = state.data.state.samples;
+  return [
+    { label: "Repositories…", hint: "O", run: openReposDialog },
+    "-",
+    { label: "Re-index this repository", hint: "I", run: reindex },
+    { label: "Export the history…", run: exportHistory },
+    { label: "Import a history…", run: () => openDialog("import-modal", "import-doc", "import-error") },
+    "-",
+    { label: samples ? "Delete the sample records" : "Load sample records",
+      run: () => samplesAction(samples ? "clear" : "load") },
+    { label: "Keyboard shortcuts", hint: "?", run: () => $("help-modal").showModal() },
+  ];
 }
 
 /* ---------- diff rendering with line numbers ---------- */
@@ -761,25 +809,16 @@ function fileRow(entry, staged) {
     el("span", { class: `code ${code}`, title: staged ? entry.index_label : entry.work_label, text: code }),
     el("span", { class: "path" }, [el("span", { class: "dir", text: dir }), el("span", { text: name })]),
     entry.sensitive ? el("span", { class: "warn-flag", title: "Credential-shaped file — never indexed", text: "⚠" }) : null,
-    el("span", { class: "row-act" }, [
-      el("button", {
-        type: "button", class: "btn tiny ghost",
-        "aria-label": `${staged ? "Unstage" : "Stage"} ${entry.path}`,
-        onclick: (event) => { event.stopPropagation(); worktreeAction(staged ? "unstage" : "stage", [entry.path]); },
-        text: staged ? "Unstage" : "Stage",
-      }),
-      !staged ? el("button", {
-        type: "button", class: "btn tiny danger",
-        "aria-label": `Discard ${entry.path}`,
-        onclick: (event) => {
-          event.stopPropagation();
-          if (confirm(`Discard your edits to ${entry.path}? This cannot be undone.`)) {
-            worktreeAction("discard", [entry.path]);
-          }
-        },
-        text: "Discard",
-      }) : null,
-    ]),
+    el("button", {
+      type: "button", class: "btn tiny ghost stage-btn",
+      "aria-label": `${staged ? "Unstage" : "Stage"} ${entry.path}`,
+      onclick: (event) => { event.stopPropagation(); worktreeAction(staged ? "unstage" : "stage", [entry.path]); },
+      text: staged ? "Unstage" : "Stage",
+    }),
+    el("button", {
+      type: "button", class: "row-menu", "aria-label": `Actions for ${entry.path}`,
+      onclick: (event) => { event.stopPropagation(); Menu.show(event, fileMenu(entry, staged)); },
+    }, ["⋯"]),
   ]), () => fileMenu(entry, staged));
 }
 
@@ -1143,7 +1182,8 @@ function select(key) {
   state.selected = key;
   if (key !== "wip") { state.selectedFile = null; state.fileDiff = null; }
   renderRows();
-  renderSidebar();
+  const worktreeRow = $("wip-row");
+  if (worktreeRow) worktreeRow.setAttribute("aria-current", key === "wip" ? "true" : "false");
   const node = $(`row-${key}`);
   if (node) node.scrollIntoView({ block: "nearest" });
 
@@ -1339,7 +1379,13 @@ function setupResizer(handleId, variable, { min, max, invert = false }) {
   const handle = $(handleId);
   const layout = document.querySelector(".layout");
   const read = () => parseInt(getComputedStyle(layout).getPropertyValue(variable), 10) || min;
-  const write = (value) => layout.style.setProperty(variable, `${Math.min(Math.max(value, min), max())}px`);
+  const write = (value) => {
+    const clamped = `${Math.min(Math.max(value, min), max())}px`;
+    layout.style.setProperty(variable, clamped);
+    remember(`pane${variable}`, clamped);
+  };
+  const stored = recall(`pane${variable}`, "");
+  if (stored) layout.style.setProperty(variable, stored);
 
   handle.addEventListener("pointerdown", (event) => {
     event.preventDefault();
@@ -1369,6 +1415,44 @@ function setupResizer(handleId, variable, { min, max, invert = false }) {
 
 /* ---------- wiring ---------- */
 
+/* ---------- the rare actions, named once and reached from the ⋯ menu ---------- */
+
+function openDialog(modalId, focusId, errorId) {
+  if (errorId) $(errorId).hidden = true;
+  $(modalId).showModal();
+  if (focusId) $(focusId).focus();
+}
+
+function reindex() {
+  return quiet(withBusy("Re-indexing the repository…", async () => {
+    toast("ok", (await post("/api/index")).message);
+    await refresh();
+  }));
+}
+
+function exportHistory() {
+  return quiet(withBusy("Exporting…", async () => {
+    const response = await fetch("/api/export");
+    if (!response.ok) throw new Error("Export failed.");
+    const url = URL.createObjectURL(await response.blob());
+    const link = el("a", { href: url, download: "gitsquid-export.json" });
+    document.body.append(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    toast("ok", "Export downloaded.");
+  }));
+}
+
+function samplesAction(action) {
+  return quiet(withBusy(action === "load" ? "Loading sample records…" : "Deleting sample records…", async () => {
+    toast("ok", (await post(`/api/samples/${action}`)).message);
+    await refresh(false);
+  }));
+}
+
+/* ---------- wiring ---------- */
+
 function bind() {
   $("btn-propose").addEventListener("click", openPropose);
   $("propose-form").addEventListener("submit", submitPropose);
@@ -1377,10 +1461,11 @@ function bind() {
   $("import-cancel").addEventListener("click", () => $("import-modal").close());
   $("ask-cancel").addEventListener("click", () => $("ask-modal").close());
   $("help-close").addEventListener("click", () => $("help-modal").close());
-  $("btn-help").addEventListener("click", () => $("help-modal").showModal());
-  $("btn-wip").addEventListener("click", () => select("wip"));
-  $("repo-chip").addEventListener("click", () => openReposDialog());
+  $("repo-chip").addEventListener("click", openReposDialog);
   $("repos-close").addEventListener("click", () => $("repos-modal").close());
+  $("btn-more").addEventListener("click", (event) => Menu.show(event, moreMenu()));
+  $("btn-filter").addEventListener("click", (event) => Menu.show(event, filterMenu()));
+
   if (desktopBridge()) {
     const browse = $("btn-browse");
     browse.hidden = false;
@@ -1394,15 +1479,11 @@ function bind() {
     if (!path) return showFormError($("repo-error"), "An absolute path is required.");
     return openRepo(path);
   });
-  $("btn-stash").addEventListener("click", stashWorkingTree);
-  $("btn-new-tag").addEventListener("click", createTag);
-  $("btn-new-branch").addEventListener("click", createBranch);
-  for (const [id, action] of [["btn-fetch", "fetch"], ["btn-fetch-side", "fetch"],
-    ["btn-pull", "pull"], ["btn-push", "push"]]) {
+
+  for (const [id, action] of [["btn-fetch", "fetch"], ["btn-pull", "pull"], ["btn-push", "push"]]) {
     $(id).addEventListener("click", () => worktreeAction(action, null));
   }
   Menu.attach($("btn-push"), () => [
-    { header: "Push" },
     { label: "Push", run: () => worktreeAction("push", null) },
     { label: "Force push", hint: "with lease", danger: true,
       run: () => {
@@ -1411,38 +1492,6 @@ function bind() {
         }
       } },
   ]);
-  $("btn-import").addEventListener("click", () => {
-    $("import-error").hidden = true;
-    $("import-modal").showModal();
-    $("import-doc").focus();
-  });
-
-  $("btn-index").addEventListener("click", () => quiet(withBusy("Re-indexing the repository…", async () => {
-    toast("ok", (await post("/api/index")).message);
-    await refresh();
-  })));
-
-  $("btn-export").addEventListener("click", () => quiet(withBusy("Exporting…", async () => {
-    const response = await fetch("/api/export");
-    if (!response.ok) throw new Error("Export failed.");
-    const url = URL.createObjectURL(await response.blob());
-    const link = el("a", { href: url, download: "gitsquid-export.json" });
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    toast("ok", "Export downloaded.");
-  })));
-
-  for (const [id, action, message] of [
-    ["btn-sample-load", "load", "Loading sample records…"],
-    ["btn-sample-clear", "clear", "Deleting sample records…"],
-  ]) {
-    $(id).addEventListener("click", () => quiet(withBusy(message, async () => {
-      toast("ok", (await post(`/api/samples/${action}`)).message);
-      await refresh(false);
-    })));
-  }
 
   $("search").addEventListener("input", (event) => {
     state.query = event.target.value.trim().toLowerCase();
@@ -1469,29 +1518,22 @@ function bind() {
     const actions = {
       "/": () => $("search").focus(),
       n: openPropose,
-      N: openPropose,
       o: openReposDialog,
-      O: openReposDialog,
       w: () => { if (state.worktree.files.length) select("wip"); },
-      W: () => { if (state.worktree.files.length) select("wip"); },
-      i: () => $("btn-index").click(),
-      I: () => $("btn-index").click(),
+      i: reindex,
       b: createBranch,
-      B: createBranch,
       t: createTag,
-      T: createTag,
       s: stashWorkingTree,
-      S: stashWorkingTree,
-      ContextMenu: () => openSelectedMenu(),
-      F10: () => { if (event.shiftKey) openSelectedMenu(); },
       "?": () => $("help-modal").showModal(),
       ArrowDown: () => move(1),
       j: () => move(1),
       ArrowUp: () => move(-1),
       k: () => move(-1),
       Enter: () => { if (state.selected) $("detail").focus(); },
+      ContextMenu: openSelectedMenu,
+      F10: () => { if (event.shiftKey) openSelectedMenu(); },
     };
-    const action = actions[event.key];
+    const action = actions[event.key] || actions[event.key.toLowerCase?.()];
     if (action) { event.preventDefault(); action(); }
   });
 }
