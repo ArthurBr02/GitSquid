@@ -9,16 +9,23 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .. import diffs, gitlog, indexer, portability, registry, sampledata, worktree
+from .. import diffs, gitlog, history, indexer, portability, refs, registry, sampledata, worktree
 from ..config import ConfigError, Settings, load_settings
 from ..db import open_db
 from ..llm import AnthropicBackend, PatchFileBackend, ProposalError
 from ..models import ChangeRepo, ChangeStatus, EventLog, TestRunRepo
+from ..gitcmd import GitError, require_paths
 from ..safety import clean_text_input
-from ..worktree import WorktreeError
 from ..workflow import ChangeService, WorkflowError
 
 ASSETS = Path(__file__).parent / "assets"
+# Everything that moves HEAD, rewrites history, or touches a remote lands in the audit trail;
+# staging noise does not.
+AUDITED_ACTIONS = frozenset({
+    "merge", "rebase", "cherry-pick", "revert-commit", "reset", "checkout-commit", "branch-from",
+    "branch", "delete-branch", "rename-branch", "checkout-remote", "delete-remote-branch",
+    "tag-create", "tag-delete", "tag-push", "push", "pull", "stash-branch", "abort", "continue",
+})
 MAX_BODY_BYTES = 2 * 1024 * 1024
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
 CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml"}
@@ -107,9 +114,13 @@ class UIServer:
                     "branch": gitlog.current_branch(self.settings.repo),
                     "branches": gitlog.branches(self.settings.repo),
                     "status": gitlog.working_status(self.settings.repo),
+                    "remote_branches": gitlog.remote_branches(self.settings.repo),
+                    "tags": gitlog.tags(self.settings.repo),
                     "remotes": worktree.remotes(self.settings.repo),
                     "tracking": worktree.tracking(self.settings.repo),
                     "stashes": worktree.stash_list(self.settings.repo),
+                    "operation": gitlog.pending_operation(self.settings.repo),
+                    "head_message": worktree.head_message(self.settings.repo),
                 },
                 "config": {
                     "model": self.settings.model,
@@ -187,47 +198,48 @@ class UIServer:
         try:
             return {"path": path, "staged": staged,
                     "diff": worktree.file_diff(self.settings.repo, path, staged=staged)}
-        except WorktreeError as exc:
+        except GitError as exc:
             raise ApiError(str(exc)) from exc
 
+    def file_history(self, path: str) -> dict:
+        try:
+            require_paths([path])
+        except GitError as exc:
+            raise ApiError(str(exc)) from exc
+        return {"path": path, "commits": gitlog.file_history(self.settings.repo, path)}
+
     def worktree_action(self, action: str, payload: dict) -> dict:
-        repo = self.settings.repo
-        handlers = {
-            "stage": lambda: worktree.stage(repo, payload.get("paths") or []),
-            "unstage": lambda: worktree.unstage(repo, payload.get("paths") or []),
-            "discard": lambda: worktree.discard(repo, payload.get("paths") or []),
-            "checkout": lambda: worktree.checkout(repo, _string(payload, "branch")),
-            "branch": lambda: worktree.create_branch(repo, _string(payload, "name")),
-            "merge": lambda: worktree.merge(repo, _string(payload, "branch")),
-            "delete-branch": lambda: worktree.delete_branch(
-                repo, _string(payload, "branch"), force=bool(payload.get("force"))
-            ),
-            "fetch": lambda: worktree.fetch(repo),
-            "pull": lambda: worktree.pull(repo),
-            "push": lambda: worktree.push(repo),
-            "stash": lambda: worktree.stash_save(repo, str(payload.get("message") or "")),
-            "stash-pop": lambda: worktree.stash_pop(repo, _string(payload, "ref")),
-            "stash-drop": lambda: worktree.stash_drop(repo, _string(payload, "ref")),
-        }
+        handlers = _handlers(self.settings.repo, payload)
         with self._lock:
             if action == "commit":
-                try:
-                    result = worktree.commit(self.settings.repo, _string(payload, "message"))
-                except WorktreeError as exc:
-                    raise ApiError(str(exc)) from exc
-                conn, _ = self.service()
-                try:
-                    EventLog(conn).record("committed", f"{result['short']} {result['message']}")
-                finally:
-                    conn.close()
-                return {"message": f"Committed {result['short']}.", "commit": result}
+                return self._commit(payload)
             handler = handlers.get(action)
             if handler is None:
                 raise ApiError(f"Unknown action: {action}", HTTPStatus.NOT_FOUND)
             try:
-                return {"message": handler()}
-            except WorktreeError as exc:
+                message = handler()
+            except GitError as exc:
                 raise ApiError(str(exc)) from exc
+            if action in AUDITED_ACTIONS:
+                self._record(action, message)
+            return {"message": message}
+
+    def _commit(self, payload: dict) -> dict:
+        amend = bool(payload.get("amend"))
+        try:
+            result = worktree.commit(self.settings.repo, _string(payload, "message"), amend=amend)
+        except GitError as exc:
+            raise ApiError(str(exc)) from exc
+        verb = "Amended" if amend else "Committed"
+        self._record("amended" if amend else "committed", f"{result['short']} {result['message']}")
+        return {"message": f"{verb} {result['short']}.", "commit": result}
+
+    def _record(self, kind: str, message: str) -> None:
+        conn, _ = self.service()
+        try:
+            EventLog(conn).record(kind, message)
+        finally:
+            conn.close()
 
     def commit_detail(self, sha: str) -> dict:
         try:
@@ -350,6 +362,57 @@ class UIServer:
                 conn.close()
 
 
+def _handlers(repo: Path, payload: dict):
+    """One name per action, grouped by the module that owns it."""
+    paths = payload.get("paths") or []
+
+    def branch() -> str:
+        return _string(payload, "branch")
+
+    def sha() -> str:
+        return _string(payload, "sha")
+
+    return {
+        "stage": lambda: worktree.stage(repo, paths),
+        "unstage": lambda: worktree.unstage(repo, paths),
+        "discard": lambda: worktree.discard(repo, paths),
+        "ignore": lambda: worktree.ignore(repo, paths),
+        "stage-hunk": lambda: worktree.apply_patch(repo, _string(payload, "patch"), target="stage"),
+        "unstage-hunk": lambda: worktree.apply_patch(repo, _string(payload, "patch"), target="unstage"),
+        "discard-hunk": lambda: worktree.apply_patch(repo, _string(payload, "patch"), target="discard"),
+        "checkout": lambda: worktree.checkout(repo, branch()),
+        "branch": lambda: worktree.create_branch(repo, _string(payload, "name")),
+        "merge": lambda: worktree.merge(repo, branch(), squash=bool(payload.get("squash"))),
+        "delete-branch": lambda: worktree.delete_branch(repo, branch(), force=bool(payload.get("force"))),
+        "fetch": lambda: worktree.fetch(repo),
+        "pull": lambda: worktree.pull(repo),
+        "push": lambda: worktree.push(repo, force=bool(payload.get("force"))),
+        "stash": lambda: worktree.stash_save(repo, str(payload.get("message") or "")),
+        "stash-pop": lambda: worktree.stash_pop(repo, _string(payload, "ref")),
+        "stash-apply": lambda: worktree.stash_apply(repo, _string(payload, "ref")),
+        "stash-drop": lambda: worktree.stash_drop(repo, _string(payload, "ref")),
+        "stash-branch": lambda: worktree.stash_branch(repo, _string(payload, "ref"), _string(payload, "name")),
+        "rename-branch": lambda: refs.rename_branch(repo, branch(), _string(payload, "name")),
+        "push-branch": lambda: refs.push_branch(repo, branch()),
+        "checkout-remote": lambda: refs.track_remote_branch(repo, branch()),
+        "delete-remote-branch": lambda: refs.delete_remote_branch(repo, branch()),
+        "tag-create": lambda: refs.create_tag(
+            repo, _string(payload, "name"), sha=str(payload.get("sha") or ""),
+            message=str(payload.get("message") or ""),
+        ),
+        "tag-delete": lambda: refs.delete_tag(repo, _string(payload, "name")),
+        "tag-push": lambda: refs.push_tag(repo, _string(payload, "name")),
+        "checkout-commit": lambda: history.checkout_commit(repo, sha()),
+        "branch-from": lambda: history.branch_from(repo, sha(), _string(payload, "name")),
+        "cherry-pick": lambda: history.cherry_pick(repo, sha()),
+        "revert-commit": lambda: history.revert_commit(repo, sha()),
+        "reset": lambda: history.reset(repo, sha(), mode=str(payload.get("mode") or "mixed")),
+        "rebase": lambda: history.rebase(repo, _string(payload, "target")),
+        "abort": lambda: history.abort(repo),
+        "continue": lambda: history.resume(repo),
+    }
+
+
 def _change_row(change) -> dict:
     return {
         "id": change.id,
@@ -450,6 +513,8 @@ class _Handler(BaseHTTPRequestHandler):
             elif route == "/api/filediff":
                 self._json(HTTPStatus.OK, self.ui.file_diff(
                     (query.get("path") or [""])[0], (query.get("staged") or ["0"])[0] == "1"))
+            elif route == "/api/filehistory":
+                self._json(HTTPStatus.OK, self.ui.file_history((query.get("path") or [""])[0]))
             elif route == "/api/export":
                 body = self.ui.export()
                 self.send_response(HTTPStatus.OK)

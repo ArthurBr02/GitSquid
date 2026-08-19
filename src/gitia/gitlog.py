@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+
+from .gitcmd import run
 
 MAX_PATCH_CHARS = 400_000
 SEP = "\x1f"
@@ -24,20 +25,14 @@ class Commit:
         return self.sha[:7]
 
 
-def _run(repo: Path, args: list[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=60, check=False
-    )
-
-
 def current_branch(repo: Path) -> str:
-    result = _run(repo, ["rev-parse", "--abbrev-ref", "HEAD"])
+    result = run(repo, ["rev-parse", "--abbrev-ref", "HEAD"])
     name = result.stdout.strip()
     return name if result.returncode == 0 and name else "(no branch)"
 
 
 def branches(repo: Path) -> list[dict[str, str]]:
-    result = _run(
+    result = run(
         repo, ["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)%1f%(objectname:short)%1f%(upstream:short)", "refs/heads"]
     )
     if result.returncode != 0:
@@ -53,7 +48,7 @@ def branches(repo: Path) -> list[dict[str, str]]:
 
 
 def working_status(repo: Path) -> dict[str, int]:
-    result = _run(repo, ["status", "--porcelain"])
+    result = run(repo, ["status", "--porcelain"])
     staged = unstaged = untracked = 0
     for line in result.stdout.splitlines():
         if line.startswith("??"):
@@ -68,7 +63,7 @@ def working_status(repo: Path) -> dict[str, int]:
 
 def commits(repo: Path, *, limit: int = 80) -> list[Commit]:
     """Commits newest first, in topological order so the graph can be laid out row by row."""
-    result = _run(repo, ["log", "--topo-order", f"--max-count={limit}", f"--pretty=format:{LOG_FORMAT}"])
+    result = run(repo, ["log", "--topo-order", f"--max-count={limit}", f"--pretty=format:{LOG_FORMAT}"])
     if result.returncode != 0:
         return []
     found: list[Commit] = []
@@ -97,12 +92,21 @@ def commit_detail(repo: Path, sha: str) -> dict:
     """Body and touched files for one commit. `sha` is validated before it reaches git."""
     if not sha or len(sha) > 64 or not all(char in "0123456789abcdefABCDEF" for char in sha):
         raise ValueError("Not a commit id.")
-    body = _run(repo, ["show", "-s", "--format=%B", sha]).stdout.strip()
-    stat = _run(repo, ["show", "--stat", "--oneline", "--format=", sha]).stdout.strip()
-    files = _run(repo, ["show", "--name-status", "--format=", sha]).stdout.strip()
-    patch = _run(repo, ["show", "--no-color", "--format=", sha]).stdout
+    header = run(repo, ["show", "-s", f"--format={SEP.join(['%H', '%an', '%aI', '%s', '%D'])}", sha])
+    fields = header.stdout.strip().split(SEP)
+    if header.returncode != 0 or len(fields) < 5:
+        raise ValueError("No such commit.")
+    body = run(repo, ["show", "-s", "--format=%B", sha]).stdout.strip()
+    stat = run(repo, ["show", "--stat", "--oneline", "--format=", sha]).stdout.strip()
+    files = run(repo, ["show", "--name-status", "--format=", sha]).stdout.strip()
+    patch = run(repo, ["show", "--no-color", "--format=", sha]).stdout
     return {
-        "sha": sha,
+        "sha": fields[0],
+        "short": fields[0][:7],
+        "author": fields[1],
+        "date": fields[2],
+        "subject": fields[3],
+        "refs": [ref.strip() for ref in fields[4].split(",") if ref.strip()],
         "body": body,
         "stat": stat,
         "diff": patch[:MAX_PATCH_CHARS],
@@ -112,3 +116,83 @@ def commit_detail(repo: Path, sha: str) -> dict:
             for parts in (line.split("\t") for line in files.splitlines() if line.strip())
         ],
     }
+
+
+def remote_branches(repo: Path) -> list[dict[str, str]]:
+    """Remote-tracking branches, minus the symbolic `origin/HEAD`, with their local twin marked."""
+    local = {branch["name"] for branch in branches(repo)}
+    result = run(
+        repo,
+        ["for-each-ref", "--sort=-committerdate",
+         "--format=%(refname:short)%1f%(objectname:short)%1f%(symref)", "refs/remotes"],
+    )
+    found = []
+    for line in result.stdout.strip().splitlines():
+        parts = line.split("\x1f")
+        name = parts[0] if parts else ""
+        if not name or (len(parts) > 2 and parts[2]):
+            continue
+        short = name.split("/", 1)[1] if "/" in name else name
+        found.append({
+            "name": name,
+            "sha": parts[1] if len(parts) > 1 else "",
+            "local": short,
+            "tracked": short in local,
+        })
+    return found
+
+
+def tags(repo: Path) -> list[dict[str, str]]:
+    result = run(
+        repo,
+        ["for-each-ref", "--sort=-creatordate",
+         "--format=%(refname:short)%1f%(objectname:short)%1f%(contents:subject)", "refs/tags"],
+    )
+    found = []
+    for line in result.stdout.strip().splitlines():
+        parts = line.split("\x1f")
+        if parts and parts[0]:
+            found.append({
+                "name": parts[0],
+                "sha": parts[1] if len(parts) > 1 else "",
+                "subject": parts[2] if len(parts) > 2 else "",
+            })
+    return found
+
+
+def file_history(repo: Path, path: str, *, limit: int = 50) -> list[dict[str, str]]:
+    """The commits that touched one file, renames followed."""
+    result = run(
+        repo,
+        ["log", "--follow", f"--max-count={limit}", f"--pretty=format:{LOG_FORMAT}", "--", path],
+    )
+    if result.returncode != 0:
+        return []
+    found = []
+    for record in result.stdout.split(END):
+        fields = record.strip("\n").split(SEP)
+        if len(fields) >= 6 and fields[0]:
+            found.append({
+                "sha": fields[0], "short": fields[0][:7], "author": fields[2],
+                "date": fields[3], "subject": fields[4],
+            })
+    return found
+
+
+_OPERATIONS = (
+    ("rebase-merge", "rebase"), ("rebase-apply", "rebase"), ("MERGE_HEAD", "merge"),
+    ("CHERRY_PICK_HEAD", "cherry-pick"), ("REVERT_HEAD", "revert"), ("BISECT_LOG", "bisect"),
+)
+
+
+def pending_operation(repo: Path) -> dict | None:
+    """A merge, rebase, cherry-pick or revert git stopped in the middle of — usually a conflict."""
+    git_dir = run(repo, ["rev-parse", "--absolute-git-dir"])
+    if git_dir.returncode != 0:
+        return None
+    root = Path(git_dir.stdout.strip())
+    for marker, kind in _OPERATIONS:
+        if (root / marker).exists():
+            conflicts = run(repo, ["diff", "--name-only", "--diff-filter=U"]).stdout.splitlines()
+            return {"kind": kind, "conflicts": conflicts, "resumable": kind != "bisect"}
+    return None

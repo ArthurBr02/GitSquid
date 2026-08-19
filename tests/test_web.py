@@ -389,3 +389,155 @@ class TestRepositoryManagement:
         repo_state = call(server, "/api/state")[1]["repo"]
         assert repo_state["remotes"] == []
         assert repo_state["tracking"] == {"upstream": None, "ahead": 0, "behind": 0}
+
+
+def commit_over_http(server, repo, name, text, message):
+    (repo / name).write_text(text, encoding="utf-8")
+    call(server, "/api/worktree/stage", method="POST", body={"paths": [name]})
+    call(server, "/api/worktree/commit", method="POST", body={"message": message})
+    return call(server, "/api/graph")[1]["commits"][0]["sha"]
+
+
+class TestHistoryOverHttp:
+    def test_a_commit_can_be_tagged_and_the_tag_listed(self, server):
+        sha = call(server, "/api/graph")[1]["commits"][0]["sha"]
+        status, payload = call(server, "/api/worktree/tag-create", method="POST",
+                               body={"name": "v1.0.0", "sha": sha, "message": "premiere"})
+        assert status == 200, payload
+
+        tags = call(server, "/api/state")[1]["repo"]["tags"]
+        assert [tag["name"] for tag in tags] == ["v1.0.0"]
+
+        assert call(server, "/api/worktree/tag-delete", method="POST", body={"name": "v1.0.0"})[0] == 200
+        assert call(server, "/api/state")[1]["repo"]["tags"] == []
+
+    def test_a_branch_can_start_at_an_older_commit(self, server, repo):
+        first = call(server, "/api/graph")[1]["commits"][0]["sha"]
+        commit_over_http(server, repo, "plus_tard.py", "X = 1\n", "plus tard")
+
+        status, _ = call(server, "/api/worktree/branch-from", method="POST",
+                         body={"sha": first, "name": "feature/retour"})
+        assert status == 200
+        assert call(server, "/api/state")[1]["repo"]["branch"] == "feature/retour"
+        assert not (repo / "plus_tard.py").exists()
+
+    def test_checking_out_a_commit_detaches_head(self, server):
+        sha = call(server, "/api/graph")[1]["commits"][0]["sha"]
+        status, payload = call(server, "/api/worktree/checkout-commit", method="POST", body={"sha": sha})
+        assert status == 200 and "detached" in payload["message"]
+
+    def test_revert_adds_a_commit_that_undoes_the_work(self, server, repo):
+        sha = commit_over_http(server, repo, "a_annuler.py", "X = 1\n", "a annuler")
+        assert call(server, "/api/worktree/revert-commit", method="POST", body={"sha": sha})[0] == 200
+        assert not (repo / "a_annuler.py").exists()
+
+    def test_reset_moves_the_branch(self, server, repo):
+        first = call(server, "/api/graph")[1]["commits"][0]["sha"]
+        commit_over_http(server, repo, "jetable.py", "X = 1\n", "jetable")
+
+        status, payload = call(server, "/api/worktree/reset", method="POST",
+                               body={"sha": first, "mode": "hard"})
+        assert status == 200, payload
+        assert not (repo / "jetable.py").exists()
+
+    def test_an_unknown_reset_mode_is_refused(self, server):
+        sha = call(server, "/api/graph")[1]["commits"][0]["sha"]
+        status, payload = call(server, "/api/worktree/reset", method="POST",
+                               body={"sha": sha, "mode": "atomique"})
+        assert status == 400 and "Reset mode" in payload["error"]
+
+    def test_a_forged_commit_id_never_reaches_git(self, server):
+        for action, body in [
+            ("cherry-pick", {"sha": "--upload-pack=touch"}),
+            ("checkout-commit", {"sha": "HEAD"}),
+            ("branch-from", {"sha": "; rm -rf /", "name": "x"}),
+        ]:
+            status, payload = call(server, f"/api/worktree/{action}", method="POST", body=body)
+            assert status == 400 and "commit id" in payload["error"]
+
+    def test_a_history_action_lands_in_the_audit_trail(self, server, repo, settings):
+        from gitia.db import open_db
+        from gitia.models import EventLog
+
+        sha = commit_over_http(server, repo, "trace.py", "X = 1\n", "trace")
+        call(server, "/api/worktree/revert-commit", method="POST", body={"sha": sha})
+
+        conn = open_db(settings.db_path)
+        kinds = [event.kind for event in EventLog(conn).recent(5)]
+        conn.close()
+        assert "revert-commit" in kinds
+
+    def test_a_conflict_is_reported_as_a_pending_operation_and_can_be_aborted(self, server, repo):
+        commit_over_http(server, repo, "partage.py", "VALEUR = 0\n", "partage")
+        git(repo, "checkout", "-q", "-b", "side")
+        side = commit_over_http(server, repo, "partage.py", "VALEUR = 2\n", "cote")
+        git(repo, "checkout", "-q", "main")
+        commit_over_http(server, repo, "partage.py", "VALEUR = 1\n", "principal")
+
+        status, payload = call(server, "/api/worktree/cherry-pick", method="POST", body={"sha": side})
+        assert status == 400 and "conflict" in payload["error"]
+
+        operation = call(server, "/api/state")[1]["repo"]["operation"]
+        assert operation["kind"] == "cherry-pick"
+        assert operation["conflicts"] == ["partage.py"]
+
+        assert call(server, "/api/worktree/abort", method="POST", body={})[0] == 200
+        assert call(server, "/api/state")[1]["repo"]["operation"] is None
+
+
+class TestFileActionsOverHttp:
+    def test_one_hunk_can_be_staged_from_the_interface(self, server, repo):
+        lines = [f"line {number}\n" for number in range(40)]
+        (repo / "long.txt").write_text("".join(lines), encoding="utf-8")
+        call(server, "/api/worktree/stage", method="POST", body={"paths": ["long.txt"]})
+        call(server, "/api/worktree/commit", method="POST", body={"message": "long"})
+
+        lines[0] = "premiere modifiee\n"
+        lines[-1] = "derniere modifiee\n"
+        (repo / "long.txt").write_text("".join(lines), encoding="utf-8")
+
+        diff = call(server, "/api/filediff?path=long.txt&staged=0")[1]["diff"]
+        head, _, rest = diff.partition("@@")
+        first_hunk = head + "@@" + rest.split("\n@@")[0] + "\n"
+
+        status, payload = call(server, "/api/worktree/stage-hunk", method="POST", body={"patch": first_hunk})
+        assert status == 200, payload
+        staged = call(server, "/api/filediff?path=long.txt&staged=1")[1]["diff"]
+        assert "premiere modifiee" in staged and "derniere modifiee" not in staged
+
+    def test_a_hunk_outside_the_repository_is_refused(self, server):
+        hostile = "diff --git a/.git/config b/.git/config\n--- a/.git/config\n+++ b/.git/config\n@@ -1 +1 @@\n-a\n+b\n"
+        status, payload = call(server, "/api/worktree/stage-hunk", method="POST", body={"patch": hostile})
+        assert status == 400 and "Refusing path" in payload["error"]
+
+    def test_ignoring_a_file_writes_gitignore(self, server, repo):
+        (repo / "bruit.log").write_text("noise\n", encoding="utf-8")
+        status, _ = call(server, "/api/worktree/ignore", method="POST", body={"paths": ["bruit.log"]})
+        assert status == 200
+        assert "/bruit.log" in (repo / ".gitignore").read_text()
+        assert [file["path"] for file in call(server, "/api/worktree")[1]["files"]] == [".gitignore"]
+
+    def test_amending_replaces_the_last_commit(self, server, repo):
+        before = len(call(server, "/api/graph")[1]["commits"])
+        (repo / "calc.py").write_text("oubli\n", encoding="utf-8")
+        call(server, "/api/worktree/stage", method="POST", body={"paths": ["calc.py"]})
+
+        status, payload = call(server, "/api/worktree/commit", method="POST",
+                               body={"message": "initial, corrige", "amend": True})
+        assert status == 200 and "Amended" in payload["message"]
+
+        commits = call(server, "/api/graph")[1]["commits"]
+        assert len(commits) == before and commits[0]["subject"] == "initial, corrige"
+
+    def test_file_history_lists_the_commits_that_touched_a_file(self, server, repo):
+        commit_over_http(server, repo, "calc.py", "VALEUR = 2\n", "seconde version")
+        status, payload = call(server, "/api/filehistory?path=calc.py")
+        assert status == 200
+        assert [commit["subject"] for commit in payload["commits"]] == ["seconde version", "initial"]
+
+    def test_file_history_refuses_a_traversal(self, server):
+        status, payload = call(server, "/api/filehistory?path=../../etc/passwd")
+        assert status == 400 and "outside the repository" in payload["error"]
+
+    def test_the_head_message_is_exposed_for_the_amend_prefill(self, server):
+        assert call(server, "/api/state")[1]["repo"]["head_message"] == "initial"

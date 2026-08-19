@@ -218,3 +218,155 @@ class TestRemotesAndStash:
         with pytest.raises(WorktreeError, match="not fully merged"):
             worktree.delete_branch(repo, "feature/perdue")
         assert "Deleted" in worktree.delete_branch(repo, "feature/perdue", force=True)
+
+
+def split_hunks(diff: str) -> tuple[str, list[str]]:
+    """The file header, then one text per hunk — what the interface sends back per hunk."""
+    header: list[str] = []
+    hunks: list[list[str]] = []
+    for line in diff.splitlines():
+        if line.startswith("@@"):
+            hunks.append([line])
+        elif hunks:
+            hunks[-1].append(line)
+        else:
+            header.append(line)
+    return "\n".join(header) + "\n", ["\n".join(lines) + "\n" for lines in hunks]
+
+
+@pytest.fixture
+def two_hunks(repo):
+    """A file edited in two places far enough apart for git to emit two hunks."""
+    lines = [f"line {number}\n" for number in range(40)]
+    (repo / "long.txt").write_text("".join(lines), encoding="utf-8")
+    worktree.stage(repo, ["long.txt"])
+    worktree.commit(repo, "Ajoute long.txt")
+
+    lines[0] = "premiere ligne modifiee\n"
+    lines[-1] = "derniere ligne modifiee\n"
+    (repo / "long.txt").write_text("".join(lines), encoding="utf-8")
+    return repo
+
+
+class TestHunks:
+    def test_one_hunk_can_be_staged_alone(self, two_hunks):
+        header, hunks = split_hunks(worktree.file_diff(two_hunks, "long.txt", staged=False))
+        assert len(hunks) == 2
+
+        worktree.apply_patch(two_hunks, header + hunks[0], target="stage")
+        staged = worktree.file_diff(two_hunks, "long.txt", staged=True)
+        assert "premiere ligne modifiee" in staged
+        assert "derniere ligne modifiee" not in staged
+        assert "derniere ligne modifiee" in worktree.file_diff(two_hunks, "long.txt", staged=False)
+
+    def test_a_staged_hunk_can_be_returned_to_the_working_tree(self, two_hunks):
+        header, hunks = split_hunks(worktree.file_diff(two_hunks, "long.txt", staged=False))
+        worktree.apply_patch(two_hunks, header + hunks[0], target="stage")
+
+        staged_header, staged_hunks = split_hunks(
+            worktree.file_diff(two_hunks, "long.txt", staged=True)
+        )
+        worktree.apply_patch(two_hunks, staged_header + staged_hunks[0], target="unstage")
+        assert worktree.file_diff(two_hunks, "long.txt", staged=True).strip() == ""
+
+    def test_discarding_a_hunk_leaves_the_other_edit(self, two_hunks):
+        header, hunks = split_hunks(worktree.file_diff(two_hunks, "long.txt", staged=False))
+        worktree.apply_patch(two_hunks, header + hunks[0], target="discard")
+
+        text = (two_hunks / "long.txt").read_text()
+        assert "premiere ligne modifiee" not in text
+        assert "derniere ligne modifiee" in text
+
+    def test_a_hunk_touching_a_forbidden_path_is_refused(self, repo):
+        patch = (
+            "diff --git a/.git/config b/.git/config\n"
+            "--- a/.git/config\n+++ b/.git/config\n"
+            "@@ -1 +1 @@\n-old\n+new\n"
+        )
+        with pytest.raises(WorktreeError, match="Refusing path"):
+            worktree.apply_patch(repo, patch, target="stage")
+
+    def test_a_hunk_that_no_longer_matches_the_file_is_refused(self, two_hunks):
+        header, hunks = split_hunks(worktree.file_diff(two_hunks, "long.txt", staged=False))
+        (two_hunks / "long.txt").write_text("tout autre chose\n", encoding="utf-8")
+        with pytest.raises(WorktreeError, match="reload it"):
+            worktree.apply_patch(two_hunks, header + hunks[0], target="discard")
+
+    def test_an_unknown_target_is_refused(self, repo):
+        with pytest.raises(WorktreeError, match="Unknown patch target"):
+            worktree.apply_patch(repo, "diff", target="delete")
+
+
+class TestAmend:
+    def test_amending_replaces_the_last_commit(self, repo):
+        before = len(git(repo, "log", "--oneline").stdout.splitlines())
+        (repo / "calc.py").write_text("oubli\n", encoding="utf-8")
+        worktree.stage(repo, ["calc.py"])
+
+        worktree.commit(repo, "initial, corrige", amend=True)
+        assert len(git(repo, "log", "--oneline").stdout.splitlines()) == before
+        assert git(repo, "log", "-1", "--pretty=%s").stdout.strip() == "initial, corrige"
+
+    def test_amending_only_the_message_needs_nothing_staged(self, repo):
+        worktree.commit(repo, "un meilleur titre", amend=True)
+        assert git(repo, "log", "-1", "--pretty=%s").stdout.strip() == "un meilleur titre"
+
+    def test_amending_is_refused_before_the_first_commit(self, tmp_path):
+        fresh = tmp_path / "neuf"
+        fresh.mkdir()
+        git(fresh, "init", "-q", "-b", "main")
+        with pytest.raises(WorktreeError, match="no commit to amend"):
+            worktree.commit(fresh, "rien", amend=True)
+
+    def test_the_head_message_is_readable_for_the_prefill(self, repo):
+        assert worktree.head_message(repo) == "initial"
+
+
+class TestIgnore:
+    def test_a_file_is_added_to_gitignore_and_disappears_from_the_status(self, repo):
+        (repo / "bruit.log").write_text("noise\n", encoding="utf-8")
+        assert "Ignored" in worktree.ignore(repo, ["bruit.log"])
+
+        assert "/bruit.log" in (repo / ".gitignore").read_text()
+        assert entry_for(repo, "bruit.log") is None
+
+    def test_ignoring_twice_changes_nothing(self, repo):
+        (repo / "bruit.log").write_text("noise\n", encoding="utf-8")
+        worktree.ignore(repo, ["bruit.log"])
+        assert worktree.ignore(repo, ["bruit.log"]) == "Already ignored."
+        assert (repo / ".gitignore").read_text().count("bruit.log") == 1
+
+    def test_a_tracked_file_has_its_removal_staged(self, repo):
+        assert "takes effect when you commit" in worktree.ignore(repo, ["README.md"])
+        assert git(repo, "ls-files", "README.md").stdout.strip() == ""
+        assert (repo / "README.md").exists()
+
+
+class TestStashExtras:
+    def test_apply_keeps_the_stash_in_the_list(self, repo):
+        (repo / "calc.py").write_text("travail\n", encoding="utf-8")
+        worktree.stash_save(repo, "garde-moi")
+
+        ref = worktree.stash_list(repo)[0]["ref"]
+        assert "kept it" in worktree.stash_apply(repo, ref)
+        assert (repo / "calc.py").read_text() == "travail\n"
+        assert len(worktree.stash_list(repo)) == 1
+
+    def test_a_stash_can_become_a_branch(self, repo):
+        (repo / "calc.py").write_text("travail\n", encoding="utf-8")
+        worktree.stash_save(repo, "pour une branche")
+
+        ref = worktree.stash_list(repo)[0]["ref"]
+        assert "feature/depuis-stash" in worktree.stash_branch(repo, ref, "feature/depuis-stash")
+        assert git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "feature/depuis-stash"
+        assert worktree.stash_list(repo) == []
+
+    def test_squash_merge_leaves_the_work_staged(self, repo):
+        worktree.create_branch(repo, "feature/squash")
+        (repo / "ajoute.py").write_text("A = 1\n", encoding="utf-8")
+        worktree.stage(repo, ["ajoute.py"])
+        worktree.commit(repo, "travail a ecraser")
+        worktree.checkout(repo, "main")
+
+        assert "Squashed" in worktree.merge(repo, "feature/squash", squash=True)
+        assert entry_for(repo, "ajoute.py").staged

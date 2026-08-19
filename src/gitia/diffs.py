@@ -1,20 +1,16 @@
 from __future__ import annotations
 
 import re
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from .gitcmd import run
 from .safety import is_safe_relative_path, is_sensitive_path
 
 _GIT_HEADER = re.compile(r"^diff --git a/(.+?) b/(.+)$", re.MULTILINE)
 _PLUS_FILE = re.compile(r"^\+\+\+ (?:b/)?(.+?)\s*$", re.MULTILINE)
 _MINUS_FILE = re.compile(r"^--- (?:a/)?(.+?)\s*$", re.MULTILINE)
 _HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@", re.MULTILINE)
-
-
-class GitError(Exception):
-    pass
 
 
 @dataclass(frozen=True)
@@ -62,28 +58,13 @@ def validate(diff: str) -> list[str]:
     return problems
 
 
-def _git(repo: Path, args: list[str], *, stdin: str | None = None) -> subprocess.CompletedProcess:
-    try:
-        return subprocess.run(
-            ["git", "-C", str(repo), *args],
-            input=stdin,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    except FileNotFoundError as exc:
-        raise GitError("git is not installed or not on PATH.") from exc
-    except subprocess.SubprocessError as exc:
-        raise GitError(f"git failed: {exc}") from exc
-
-
 def current_commit(repo: Path) -> str | None:
-    result = _git(repo, ["rev-parse", "HEAD"])
+    result = run(repo, ["rev-parse", "HEAD"])
     return result.stdout.strip() if result.returncode == 0 else None
 
 
 def working_tree_dirty(repo: Path) -> bool:
-    result = _git(repo, ["status", "--porcelain"])
+    result = run(repo, ["status", "--porcelain"])
     return bool(result.stdout.strip())
 
 
@@ -97,7 +78,7 @@ def _apply(repo: Path, diff: str, *, check: bool, reverse: bool) -> ApplyResult:
     if reverse:
         args.append("--reverse")
     args.append("-")
-    result = _git(repo, args, stdin=normalize(diff))
+    result = run(repo, args, stdin=normalize(diff), timeout=120)
     if result.returncode == 0:
         return ApplyResult(True, "ok")
     return ApplyResult(False, (result.stderr or result.stdout).strip() or "git apply failed")

@@ -94,17 +94,32 @@ assistant one:
   curve per parent, and changes ride the lane below them as a diamond coloured by status. Filtering
   the list drops the lanes rather than joining rows that are not adjacent in history.
 - **Uncommitted changes** — staged and unstaged files with their status codes, per-file diff with
-  line numbers, stage / unstage / discard per file or in bulk, and a commit box. Committing is
-  recorded in the audit trail alongside everything else.
+  line numbers, stage / unstage / discard per file or in bulk, **stage, unstage or discard one
+  hunk** from the diff itself, and a commit box with an **Amend** toggle that prefills the message
+  of `HEAD`. Committing is recorded in the audit trail alongside everything else.
 - **Change detail** — rationale, facts, diff, every test run with its output, and the audit trail.
   Apply, Run tests, and Revert act from here, and each button disables itself when the change's
   status makes the action impossible.
 - **Commit detail** — message, files, and the full patch.
-- **Branches** — click to switch, <kbd>+</kbd> to create, and on hover: merge into the current
-  branch, or delete (an unmerged branch is refused unless you force it).
+- **Right click** — every list has the actions you would expect from a graph client, on a right
+  click or on <kbd>Shift</kbd>+<kbd>F10</kbd>. On a commit: check it out, branch from it, tag it,
+  cherry-pick it, revert it, rebase the current branch onto it, reset the branch to it
+  (soft / mixed / hard), copy its SHA or its message. On a branch: check out, merge (or squash
+  merge), rebase onto it, branch from it, rename, push, delete, copy. On a remote branch: check out
+  as a tracking branch, fetch, delete on the remote. On a tag: check out, push, delete. On a stash:
+  apply, pop, branch from it, drop. On a file: stage, unstage, discard, ignore, file history,
+  copy path. On a recorded change: apply, run tests, revert.
+- **Branches** — local branches with the current one marked, remote-tracking branches in their own
+  panel, and tags in theirs. <kbd>+</kbd> creates a branch or a tag; everything else is one right
+  click away.
 - **Remotes** — Fetch, Pull (fast-forward only), and Push in the top bar, with ahead/behind
-  badges. They disable themselves when the repository has no remote.
-- **Stashes** — stash the working tree, then pop or drop from the sidebar.
+  badges; a right click on Push offers a force push `--force-with-lease`. They disable themselves
+  when the repository has no remote.
+- **Stashes** — stash the working tree, then apply, pop, branch from, or drop from the sidebar.
+- **Interrupted operations** — when a merge, rebase, cherry-pick or revert stops on a conflict, a
+  bar names it, counts the files that still conflict, and offers **Continue** (once nothing does)
+  or **Abort**.
+- **File history** — the commits that touched one file, renames followed, from its context menu.
 - **Sidebar** — status filters with counts, the working-tree summary, index size, and the
   sample-data controls.
 - **New change** — task plus an optional diff. Without an API key the diff becomes required, and
@@ -112,10 +127,12 @@ assistant one:
 
 Both dividers are draggable, and focusable for keyboard resizing with <kbd>←</kbd><kbd>→</kbd>.
 
-Keyboard: <kbd>N</kbd> new change · <kbd>W</kbd> uncommitted changes · <kbd>I</kbd> re-index ·
-<kbd>/</kbd> filter · <kbd>↑</kbd><kbd>↓</kbd> or <kbd>j</kbd><kbd>k</kbd> move ·
-<kbd>Enter</kbd> focus the detail · <kbd>Esc</kbd> leave a field · <kbd>?</kbd> the full list.
-Nothing needs a mouse.
+Keyboard: <kbd>N</kbd> new change · <kbd>W</kbd> uncommitted changes · <kbd>B</kbd> branch ·
+<kbd>T</kbd> tag · <kbd>S</kbd> stash · <kbd>I</kbd> re-index · <kbd>/</kbd> filter ·
+<kbd>↑</kbd><kbd>↓</kbd> or <kbd>j</kbd><kbd>k</kbd> move · <kbd>Enter</kbd> focus the detail ·
+<kbd>Shift</kbd>+<kbd>F10</kbd> the menu of the selected row · <kbd>Esc</kbd> leave a field or
+close a menu · <kbd>?</kbd> the full list. Nothing needs a mouse: every context menu is reachable
+from the keyboard and walks with the arrow keys.
 
 The server binds `127.0.0.1` only and refuses any request whose `Host` header is not loopback,
 which blocks DNS rebinding from a web page you might have open. Nothing outside the machine can
@@ -139,8 +156,11 @@ remote operation fails with a readable message instead of hanging on a password 
 | `llm.py` | `ProposalBackend` protocol; the Anthropic backend and the patch-file backend. |
 | `diffs.py` | Unified-diff parsing, path safety, `git apply` / `--check` / `--reverse`. |
 | `runner.py` | Run the verification command, capture and time it. |
-| `gitlog.py` | Read commits, parents, branches, and status. |
-| `worktree.py` | Stage, unstage, discard, commit, branch, merge, stash, and remotes. |
+| `gitcmd.py` | The one place git is invoked: process, timeouts, credential-prompt refusal, and the validation of every ref, path and commit id that reaches a command line. |
+| `gitlog.py` | Reads: commits, parents, branches, remote branches, tags, status, file history, and the operation git stopped in the middle of. |
+| `worktree.py` | The working tree and the index: stage, unstage, discard, ignore, per-hunk apply, commit, amend, branch, merge, stash, and the remote sync. |
+| `refs.py` | Tags, remote branches, and branch renaming. |
+| `history.py` | Check out a commit, branch from it, cherry-pick, revert, reset, rebase — and abort or continue what conflicts. |
 | `registry.py` | The list of known repositories, shared by every session. |
 | `web/` | Loopback HTTP server, JSON API, and the single-page interface; `assets/graph.js` lays out and paints the commit graph. |
 | `workflow.py` | `ChangeService` — the core loop, independent of the CLI. |
@@ -193,13 +213,17 @@ gitia asks for nothing it does not need:
   `.gitignore` decides what gitia sees. Binaries, files over
   `GITIA_MAX_FILE_BYTES`, and credential-shaped files (`.env*`, `*.pem`, `*.key`, `id_rsa`,
   `.netrc`, …) are skipped and never indexed or sent.
-- **Write** only through `git apply`, `git add`, `git checkout`, and `git commit`, only inside the
-  repository, and only after you confirm. Every path — in a patch or from the interface — is
-  rejected before it reaches git if it is absolute, contains `..`, or points into `.git/`
-  or `.gitia/`. Discarding a file asks for confirmation because it cannot be undone.
+- **Write** only through git itself — `apply`, `add`, `checkout`, `commit`, `branch`, `tag`,
+  `merge`, `rebase`, `cherry-pick`, `revert`, `reset`, `stash`, `push` — only inside the
+  repository, and only after you confirm. Every path — in a patch, in a hunk, or from the
+  interface — is rejected before it reaches git if it is absolute, contains `..`, or points into
+  `.git/` or `.gitia/`; every branch, tag and commit id is validated the same way, so nothing from
+  the interface is ever interpreted as a git option. Anything destructive — discard, hard reset,
+  force push, force delete, dropping a stash — asks first, and lands in the audit trail.
 - **Execute** exactly one command — the `GITIA_TEST_COMMAND` you configured — in the repository
   directory, with a timeout.
-- **Listen** on `127.0.0.1` only while `gitia ui` is running, behind a per-session token.
+- **Listen** on `127.0.0.1` only while `gitia ui` is running, and only for requests whose `Host`
+  header is a loopback name.
 - **Network** only to `api.anthropic.com`, only during `propose` / `run`, and only when
   `ANTHROPIC_API_KEY` is set.
 
@@ -264,13 +288,16 @@ Stated plainly, because some of them are deliberate:
 
 - One database per repository, and no cross-repository view: you switch between repositories,
   you do not see them side by side. No pull requests, no code review, no issue tracking.
-- The interface stages, commits, branches, merges, stashes, fetches, pulls, and pushes. It does
-  **not** rebase, cherry-pick, clone, resolve conflicts, or edit history. A merge conflict is
-  reported and left for git — gitia will not pretend to resolve it.
+- The interface stages by file or by hunk, commits, amends, branches, tags, merges, squash-merges,
+  rebases, cherry-picks, reverts, resets, stashes, fetches, pulls, and pushes. It does **not**
+  clone, resolve conflicts in an editor, rebase interactively, or manage submodules, worktrees
+  and LFS. A conflict is named, counted and left to you: resolve it in your editor, then Continue
+  or Abort from the bar.
+- Staging is per file or per hunk, never per line.
 - Pull is fast-forward only, on purpose: no implicit merge commit behind your back.
 - Credentials are git's business. gitia never asks for or stores one, and a remote operation that
   would need an interactive prompt fails with an explanation instead of hanging.
-- Staging is per file, not per hunk.
+- No blame view, no side-by-side diff, no graph search beyond the loaded window.
 - A repository with no commits shows an empty graph — that is the empty state, not an error.
 - `git apply` is strict: a diff generated against stale excerpts is refused rather than fuzzed in.
 - `revert` reverses the recorded patch. If you edited the same lines afterwards it will refuse,

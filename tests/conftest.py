@@ -151,3 +151,12 @@ def patch_add_multiply(repo: Path) -> str:
 @pytest.fixture
 def patch_breaks_tests(repo: Path) -> str:
     return make_patch(repo, "calc.py", CALC_PY.replace("return a + b", "return a - b"))
+
+
+@pytest.fixture
+def repo_with_remote(repo: Path, tmp_path: Path) -> Path:
+    """A repository whose `origin` is a bare clone on disk — no network in the tests."""
+    git(tmp_path, "init", "--bare", "-q", "origin.git")
+    git(repo, "remote", "add", "origin", str(tmp_path / "origin.git"))
+    git(repo, "push", "-q", "-u", "origin", "main")
+    return repo

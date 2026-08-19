@@ -21,6 +21,7 @@ const state = {
   selectedFile: null,
   fileDiff: null,
   commitMessage: "",
+  amend: false,
   busy: false,
 };
 
@@ -32,6 +33,11 @@ function el(tag, props = {}, children = []) {
     if (value === undefined || value === null || value === false) continue;
     if (key === "class") node.className = value;
     else if (key === "text") node.textContent = value;
+    // Through the CSSOM, never as a style attribute: the page's CSP forbids inline styles.
+    else if (key === "style") for (const rule of String(value).split(";")) {
+      const [property, setting] = rule.split(":");
+      if (setting) node.style.setProperty(property.trim(), setting.trim());
+    }
     else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
     else node.setAttribute(key, value === true ? "" : String(value));
   }
@@ -59,6 +65,61 @@ function relativeTime(iso) {
 function splitPath(path) {
   const cut = path.lastIndexOf("/");
   return cut === -1 ? ["", path] : [path.slice(0, cut + 1), path.slice(cut + 1)];
+}
+
+function copy(text, what) {
+  navigator.clipboard.writeText(text).then(
+    () => toast("ok", `${what} copied.`),
+    () => toast("bad", "The clipboard refused the copy."),
+  );
+}
+
+/* One dialog for every "name this" question: branch, tag, rename, stash message. */
+function ask({ title, hint = "", label, placeholder = "", value = "", submit = "OK", optional = false, extra = null }) {
+  const modal = $("ask-modal");
+  const field = $("ask-value");
+  const form = $("ask-form");
+  $("ask-title").textContent = title;
+  $("ask-hint").textContent = hint;
+  $("ask-hint").hidden = !hint;
+  $("ask-label").textContent = label;
+  $("ask-submit").textContent = submit;
+  $("ask-error").hidden = true;
+  field.placeholder = placeholder;
+  field.value = value;
+  $("ask-extra-field").hidden = !extra;
+  if (extra) {
+    $("ask-extra-label").textContent = extra.label;
+    $("ask-extra").placeholder = extra.placeholder || "";
+    $("ask-extra").value = "";
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      form.removeEventListener("submit", onSubmit);
+      modal.removeEventListener("close", onClose);
+      resolve(result);
+    };
+    const onSubmit = (event) => {
+      event.preventDefault();
+      const primary = field.value.trim();
+      if (!primary && !optional) {
+        showFormError($("ask-error"), "This field is required.");
+        return;
+      }
+      finish({ value: primary, extra: extra ? $("ask-extra").value.trim() : "" });
+      modal.close();
+    };
+    const onClose = () => finish(null);
+    form.addEventListener("submit", onSubmit);
+    modal.addEventListener("close", onClose);
+    modal.showModal();
+    field.focus();
+    field.select();
+  });
 }
 
 /* ---------- api ---------- */
@@ -176,6 +237,7 @@ function renderRows() {
       id: `row-${row.key}`,
       "aria-selected": state.selected === row.key ? "true" : "false",
       onclick: () => select(row.key),
+      oncontextmenu: (event) => { event.preventDefault(); select(row.key); Menu.show(event, rowMenu(row)); },
     });
 
     const main = el("div", { class: "row-main" });
@@ -224,6 +286,162 @@ function renderRows() {
   });
 }
 
+/* ---------- context menus: one builder per kind of row ---------- */
+
+const confirmed = (question, action, extra) => () => {
+  if (confirm(question)) worktreeAction(action, null, extra);
+};
+const runs = (action, extra) => () => worktreeAction(action, null, extra);
+
+async function askThen(question, action, build) {
+  const answer = await ask(question);
+  if (answer) worktreeAction(action, null, build(answer));
+}
+
+function commitMenu(row) {
+  const branch = state.data.state.repo.branch;
+  const sha = row.sha;
+  return [
+    { header: `Commit ${row.short}` },
+    { label: "Check out this commit", hint: "detached",
+      run: confirmed(`Check out ${row.short}? HEAD becomes detached — create a branch to keep work here.`, "checkout-commit", { sha }) },
+    { label: "New branch here…",
+      run: () => askThen({ title: "Branch from this commit", hint: `Branches at ${row.short} and switches to it.`, label: "Branch name", placeholder: "feature/ma-fonctionnalite", submit: "Create" }, "branch-from", (a) => ({ sha, name: a.value })) },
+    { label: "Tag this commit…",
+      run: () => askThen({ title: "Tag this commit", label: "Tag name", placeholder: "v1.2.0", submit: "Tag", extra: { label: "Message (optional — an annotated tag)", placeholder: "What this release contains" } }, "tag-create", (a) => ({ sha, name: a.value, message: a.extra })) },
+    "-",
+    { label: `Cherry-pick onto ${branch}`, run: runs("cherry-pick", { sha }) },
+    { label: "Revert this commit", hint: "new commit", run: runs("revert-commit", { sha }) },
+    { label: `Rebase ${branch} onto here`,
+      run: confirmed(`Replay ${branch} on top of ${row.short}? This rewrites the commits of ${branch}.`, "rebase", { target: sha }) },
+    { header: `Reset ${branch} to here` },
+    { label: "Soft — keep the index and the working tree", run: runs("reset", { sha, mode: "soft" }) },
+    { label: "Mixed — keep the working tree", run: runs("reset", { sha, mode: "mixed" }) },
+    { label: "Hard — discard everything after it", danger: true,
+      run: confirmed(`Hard reset ${branch} to ${row.short}? Every uncommitted edit and every later commit is lost.`, "reset", { sha, mode: "hard" }) },
+    "-",
+    { label: "Copy SHA", run: () => copy(sha, "SHA") },
+    { label: "Copy message", run: () => copy(row.subject || "", "Message") },
+  ];
+}
+
+function changeMenu(row) {
+  const applicable = ["proposed", "failed"].includes(row.status);
+  const testable = ["applied", "verified", "failed"].includes(row.status);
+  return [
+    { header: `Change #${row.id}` },
+    { label: "Apply to the working tree", disabled: row.is_sample || !applicable, run: () => changeAction(row.id, "apply") },
+    { label: "Run tests", disabled: !testable, run: () => changeAction(row.id, "test") },
+    { label: "Revert", danger: true, disabled: row.is_sample || !testable,
+      run: () => { if (confirm(`Reverse change #${row.id} in the working tree?`)) changeAction(row.id, "revert"); } },
+    "-",
+    { label: "Copy the task", run: () => copy(row.task, "Task") },
+  ];
+}
+
+function wipMenu() {
+  const files = state.worktree.files;
+  const paths = files.map((file) => file.path);
+  const unstaged = files.filter((file) => file.unstaged || file.untracked).map((file) => file.path);
+  return [
+    { header: "Uncommitted changes" },
+    { label: "Stage everything", disabled: !unstaged.length, run: () => worktreeAction("stage", unstaged) },
+    { label: "Unstage everything", disabled: !state.worktree.staged, run: () => worktreeAction("unstage", files.filter((file) => file.staged).map((file) => file.path)) },
+    { label: "Discard everything", danger: true, disabled: !paths.length,
+      run: () => { if (confirm(`Discard every edit in ${paths.length} file(s)? This cannot be undone.`)) worktreeAction("discard", paths); } },
+    "-",
+    { label: "Stash…", run: () => stashWorkingTree() },
+  ];
+}
+
+function branchMenu(branch, isCurrent) {
+  const current = state.data.state.repo.branch;
+  const hasRemote = (state.data.state.repo.remotes || []).length > 0;
+  return [
+    { header: branch.name },
+    { label: "Check out", disabled: isCurrent, run: () => switchBranch(branch.name) },
+    { label: `Merge into ${current}`, disabled: isCurrent,
+      run: confirmed(`Merge ${branch.name} into ${current}?`, "merge", { branch: branch.name }) },
+    { label: `Merge into ${current} (squash)`, disabled: isCurrent,
+      run: confirmed(`Squash ${branch.name} into the index of ${current}?`, "merge", { branch: branch.name, squash: true }) },
+    { label: `Rebase ${current} onto it`, disabled: isCurrent,
+      run: confirmed(`Replay ${current} on top of ${branch.name}? This rewrites the commits of ${current}.`, "rebase", { target: branch.name }) },
+    "-",
+    { label: "New branch from here…",
+      run: () => askThen({ title: `Branch from ${branch.name}`, label: "Branch name", submit: "Create" }, "branch-from", (a) => ({ sha: branch.sha, name: a.value })) },
+    { label: "Rename…",
+      run: () => askThen({ title: `Rename ${branch.name}`, label: "New name", value: branch.name, submit: "Rename" }, "rename-branch", (a) => ({ branch: branch.name, name: a.value })) },
+    { label: "Push", disabled: !hasRemote, run: runs("push-branch", { branch: branch.name }) },
+    { label: "Delete", danger: true, disabled: isCurrent,
+      run: confirmed(`Delete the branch ${branch.name}?`, "delete-branch", { branch: branch.name }) },
+    { label: "Delete even if unmerged", danger: true, disabled: isCurrent,
+      run: confirmed(`Force-delete ${branch.name}? Commits only on that branch are lost.`, "delete-branch", { branch: branch.name, force: true }) },
+    "-",
+    { label: "Copy name", run: () => copy(branch.name, "Branch name") },
+  ];
+}
+
+function remoteBranchMenu(entry) {
+  return [
+    { header: entry.name },
+    { label: entry.tracked ? `Check out ${entry.local}` : `Check out as ${entry.local}`,
+      run: runs("checkout-remote", { branch: entry.name }) },
+    { label: "Fetch", run: runs("fetch") },
+    { label: "Delete on the remote", danger: true,
+      run: confirmed(`Delete ${entry.name} on the remote? Other clones keep their copy until they prune.`, "delete-remote-branch", { branch: entry.name }) },
+    "-",
+    { label: "Copy name", run: () => copy(entry.name, "Branch name") },
+  ];
+}
+
+function tagMenu(tag) {
+  const hasRemote = (state.data.state.repo.remotes || []).length > 0;
+  return [
+    { header: tag.name },
+    { label: "Check out", hint: "detached",
+      run: confirmed(`Check out ${tag.name}? HEAD becomes detached.`, "checkout-commit", { sha: tag.sha }) },
+    { label: "Push to the remote", disabled: !hasRemote, run: runs("tag-push", { name: tag.name }) },
+    { label: "Delete", danger: true,
+      run: confirmed(`Delete the tag ${tag.name}? Only the local one — the remote keeps its copy.`, "tag-delete", { name: tag.name }) },
+    "-",
+    { label: "Copy name", run: () => copy(tag.name, "Tag name") },
+  ];
+}
+
+function stashMenu(stash) {
+  return [
+    { header: stash.ref },
+    { label: "Apply", hint: "keeps it", run: runs("stash-apply", { ref: stash.ref }) },
+    { label: "Pop", hint: "removes it", run: runs("stash-pop", { ref: stash.ref }) },
+    { label: "Branch from it…",
+      run: () => askThen({ title: `Branch from ${stash.ref}`, hint: "Creates the branch, restores the stash on it, and drops the stash.", label: "Branch name", submit: "Create" }, "stash-branch", (a) => ({ ref: stash.ref, name: a.value })) },
+    { label: "Drop", danger: true,
+      run: confirmed(`Drop ${stash.ref}? Its content is lost.`, "stash-drop", { ref: stash.ref }) },
+  ];
+}
+
+function fileMenu(entry, staged) {
+  return [
+    { header: entry.path },
+    { label: staged ? "Unstage" : "Stage",
+      run: () => worktreeAction(staged ? "unstage" : "stage", [entry.path]) },
+    { label: "Open the diff", run: () => openFile(entry.path, staged) },
+    { label: "File history", run: () => openFileHistory(entry.path) },
+    "-",
+    { label: "Ignore it", hint: ".gitignore", disabled: staged,
+      run: confirmed(`Add ${entry.path} to .gitignore?`, "ignore", { paths: [entry.path] }) },
+    { label: "Discard the edits", danger: true, disabled: staged,
+      run: () => { if (confirm(`Discard your edits to ${entry.path}? This cannot be undone.`)) worktreeAction("discard", [entry.path]); } },
+    "-",
+    { label: "Copy path", run: () => copy(entry.path, "Path") },
+  ];
+}
+
+function rowMenu(row) {
+  if (row.kind === "wip") return wipMenu();
+  return row.kind === "change" ? changeMenu(row) : commitMenu(row);
+}
+
 /* ---------- sidebar ---------- */
 
 function renderSidebar() {
@@ -231,7 +449,6 @@ function renderSidebar() {
   $("repo-name").textContent = repo.name;
   $("repo-branch").textContent = repo.branch;
   $("db-path").textContent = config.database;
-  $("branch-base").textContent = repo.branch;
 
   const model = clear($("model-state"));
   model.append(
@@ -289,71 +506,11 @@ function renderSidebar() {
     $(id).title = hasRemote ? $(id).title : "This repository has no remote configured.";
   }
 
-  const stashes = clear($("stashes"));
-  if (!(repo.stashes || []).length) {
-    stashes.append(el("li", {}, [el("span", { class: "empty", text: "No stash." })]));
-  }
-  for (const stash of repo.stashes || []) {
-    stashes.append(el("li", {}, [
-      el("span", { class: "subject", title: stash.subject, text: stash.subject }),
-      el("span", { class: "age", text: stash.age }),
-      el("button", {
-        type: "button", class: "btn tiny ghost", "aria-label": `Restore ${stash.ref}`,
-        onclick: () => worktreeAction("stash-pop", null, { ref: stash.ref }), text: "Pop",
-      }),
-      el("button", {
-        type: "button", class: "btn tiny danger", "aria-label": `Drop ${stash.ref}`,
-        onclick: () => {
-          if (confirm(`Drop ${stash.ref}? Its content is lost.`)) {
-            worktreeAction("stash-drop", null, { ref: stash.ref });
-          }
-        },
-        text: "Drop",
-      }),
-    ]));
-  }
-
-  const branches = clear($("branches"));
-  if (!repo.branches.length) {
-    branches.append(el("li", {}, [el("span", { class: "count", text: "no branch yet" })]));
-  }
-  for (const branch of repo.branches) {
-    const isCurrent = branch.name === repo.branch;
-    branches.append(el("li", {}, [
-      el("button", {
-        type: "button",
-        class: `name ${isCurrent ? "current" : ""}`,
-        "aria-current": isCurrent ? "true" : "false",
-        title: isCurrent ? "Current branch" : `Switch to ${branch.name}`,
-        onclick: () => { if (!isCurrent) switchBranch(branch.name); },
-      }, [
-        el("span", { text: branch.name }),
-        el("span", { class: "count", text: branch.sha }),
-      ]),
-      !isCurrent ? el("span", { class: "row-act" }, [
-        el("button", {
-          type: "button", class: "btn tiny ghost",
-          "aria-label": `Merge ${branch.name} into ${repo.branch}`,
-          title: `Merge into ${repo.branch}`,
-          onclick: () => {
-            if (confirm(`Merge ${branch.name} into ${repo.branch}?`)) {
-              worktreeAction("merge", null, { branch: branch.name });
-            }
-          },
-          text: "Merge",
-        }),
-        el("button", {
-          type: "button", class: "btn tiny danger", "aria-label": `Delete ${branch.name}`,
-          onclick: () => {
-            if (confirm(`Delete the branch ${branch.name}?`)) {
-              worktreeAction("delete-branch", null, { branch: branch.name });
-            }
-          },
-          text: "×",
-        }),
-      ]) : null,
-    ]));
-  }
+  renderStashes(repo);
+  renderBranches(repo);
+  renderRemoteBranches(repo);
+  renderTags(repo);
+  renderOperation(repo);
 
   const stats = clear($("index-stats"));
   for (const [label, value] of [
@@ -367,37 +524,222 @@ function renderSidebar() {
   }
 }
 
+function listItem(children, menu) {
+  return Menu.attach(el("li", { tabindex: "-1" }, children), menu);
+}
+
+function renderStashes(repo) {
+  const stashes = clear($("stashes"));
+  const entries = repo.stashes || [];
+  if (!entries.length) {
+    stashes.append(el("li", {}, [el("span", { class: "empty", text: "No stash." })]));
+  }
+  for (const stash of entries) {
+    stashes.append(listItem([
+      el("span", { class: "subject", title: `${stash.ref} — ${stash.subject}`, text: stash.subject }),
+      el("span", { class: "age", text: stash.age }),
+      el("span", { class: "row-act" }, [
+        el("button", {
+          type: "button", class: "btn tiny ghost", "aria-label": `Restore ${stash.ref}`,
+          onclick: () => worktreeAction("stash-pop", null, { ref: stash.ref }), text: "Pop",
+        }),
+        el("button", {
+          type: "button", class: "btn tiny ghost", "aria-label": `Actions for ${stash.ref}`,
+          onclick: (event) => Menu.show(event, stashMenu(stash)), text: "…",
+        }),
+      ]),
+    ], () => stashMenu(stash)));
+  }
+}
+
+function renderBranches(repo) {
+  const branches = clear($("branches"));
+  if (!repo.branches.length) {
+    branches.append(el("li", {}, [el("span", { class: "empty", text: "No branch yet." })]));
+  }
+  for (const branch of repo.branches) {
+    const isCurrent = branch.name === repo.branch;
+    branches.append(listItem([
+      el("button", {
+        type: "button",
+        class: `name ${isCurrent ? "current" : ""}`,
+        "aria-current": isCurrent ? "true" : "false",
+        title: isCurrent ? "Current branch" : `Switch to ${branch.name}`,
+        onclick: () => { if (!isCurrent) switchBranch(branch.name); },
+      }, [
+        el("span", { text: branch.name }),
+        el("span", { class: "count", text: branch.sha }),
+      ]),
+      el("span", { class: "row-act" }, [
+        el("button", {
+          type: "button", class: "btn tiny ghost", "aria-label": `Actions for ${branch.name}`,
+          onclick: (event) => Menu.show(event, branchMenu(branch, isCurrent)), text: "…",
+        }),
+      ]),
+    ], () => branchMenu(branch, isCurrent)));
+  }
+}
+
+function renderRemoteBranches(repo) {
+  const list = clear($("remote-branches"));
+  const entries = repo.remote_branches || [];
+  if (!entries.length) {
+    list.append(el("li", {}, [el("span", { class: "empty", text: (repo.remotes || []).length ? "Nothing fetched yet." : "No remote." })]));
+  }
+  for (const entry of entries) {
+    list.append(listItem([
+      el("button", {
+        type: "button", class: "name", title: `Check out ${entry.name}`,
+        onclick: () => worktreeAction("checkout-remote", null, { branch: entry.name }),
+      }, [
+        el("span", { text: entry.name }),
+        el("span", { class: "count", text: entry.tracked ? "tracked" : entry.sha }),
+      ]),
+      el("span", { class: "row-act" }, [
+        el("button", {
+          type: "button", class: "btn tiny ghost", "aria-label": `Actions for ${entry.name}`,
+          onclick: (event) => Menu.show(event, remoteBranchMenu(entry)), text: "…",
+        }),
+      ]),
+    ], () => remoteBranchMenu(entry)));
+  }
+}
+
+function renderTags(repo) {
+  const list = clear($("tags"));
+  const entries = repo.tags || [];
+  if (!entries.length) {
+    list.append(el("li", {}, [el("span", { class: "empty", text: "No tag." })]));
+  }
+  for (const tag of entries) {
+    list.append(listItem([
+      el("span", { class: "subject", title: tag.subject || tag.name, text: tag.name }),
+      el("span", { class: "age", text: tag.sha }),
+      el("span", { class: "row-act" }, [
+        el("button", {
+          type: "button", class: "btn tiny ghost", "aria-label": `Actions for ${tag.name}`,
+          onclick: (event) => Menu.show(event, tagMenu(tag)), text: "…",
+        }),
+      ]),
+    ], () => tagMenu(tag)));
+  }
+}
+
+/* A merge, rebase, cherry-pick or revert git stopped in the middle of: the one state where
+   the next step is neither committing nor staging. */
+function renderOperation(repo) {
+  const bar = clear($("op-bar"));
+  const operation = repo.operation;
+  bar.hidden = !operation;
+  if (!operation) return;
+  const blocked = operation.conflicts.length;
+  bar.append(
+    el("span", { class: "op-kind", text: `${operation.kind} in progress` }),
+    el("span", {
+      text: blocked
+        ? `${blocked} file(s) still conflict. Resolve them, stage them, then continue.`
+        : "Nothing conflicts any more — continue when you are ready.",
+    }),
+    operation.resumable ? el("button", {
+      type: "button", class: "btn tiny", disabled: blocked > 0,
+      onclick: () => worktreeAction("continue", null), text: "Continue",
+    }) : null,
+    el("button", {
+      type: "button", class: "btn tiny danger",
+      onclick: () => { if (confirm(`Abort the ${operation.kind}? The repository goes back where it started.`)) worktreeAction("abort", null); },
+      text: "Abort",
+    }),
+  );
+}
+
 /* ---------- diff rendering with line numbers ---------- */
 
-function renderDiff(diff) {
-  const box = el("pre", { class: "diff" });
-  let oldLine = 0;
-  let newLine = 0;
-
-  for (const line of diff.replace(/\n$/, "").split("\n")) {
-    let kind = "";
-    let number = "";
-    if (line.startsWith("@@")) {
-      kind = "hunk";
-      const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
-      if (match) { oldLine = Number(match[1]); newLine = Number(match[2]); }
-    } else if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ")
-      || line.startsWith("index ") || line.startsWith("new file") || line.startsWith("deleted file")
-      || line.startsWith("similarity ") || line.startsWith("rename ")) {
-      kind = "meta";
-    } else if (line.startsWith("+")) {
-      kind = "add"; number = String(newLine++);
-    } else if (line.startsWith("-")) {
-      kind = "del"; number = String(oldLine++);
-    } else if (line.startsWith(" ") || line === "") {
-      number = String(newLine++); oldLine++;
+function parseDiff(text) {
+  const files = [];
+  let file = null;
+  let hunk = null;
+  const ensure = () => {
+    if (!file) { file = { header: [], hunks: [] }; files.push(file); }
+    return file;
+  };
+  for (const line of text.replace(/\n$/, "").split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      file = { header: [line], hunks: [] };
+      files.push(file);
+      hunk = null;
+    } else if (line.startsWith("@@")) {
+      hunk = { lines: [line] };
+      ensure().hunks.push(hunk);
+    } else if (hunk) {
+      hunk.lines.push(line);
+    } else {
+      ensure().header.push(line);
     }
-    box.append(el("div", { class: kind }, [
-      el("span", { class: "ln", "aria-hidden": "true", text: number }),
-      el("span", { class: "tx", text: line || " " }),
-    ]));
+  }
+  return files;
+}
+
+function diffLine(text, kind, number) {
+  return el("div", { class: kind }, [
+    el("span", { class: "ln", "aria-hidden": "true", text: number }),
+    el("span", { class: "tx", text: text || " " }),
+  ]);
+}
+
+function hunkBar(file, hunk, actions) {
+  const patch = [...file.header, ...hunk.lines].join("\n") + "\n";
+  const buttons = actions.staged
+    ? [["Unstage hunk", "unstage", false]]
+    : [["Stage hunk", "stage", false], ["Discard hunk", "discard", true]];
+  return el("div", { class: "hunk-bar" }, buttons.map(([label, target, danger]) =>
+    el("button", {
+      type: "button",
+      class: `btn tiny ${danger ? "danger" : "ghost"}`,
+      onclick: () => {
+        if (danger && !confirm("Discard this hunk? The lines are lost.")) return;
+        applyHunk(patch, target);
+      },
+      text: label,
+    })));
+}
+
+/* `actions` is set only for a working-tree file, where a single hunk can be staged. */
+function renderDiff(diff, actions = null) {
+  const box = el("pre", { class: "diff" });
+  for (const file of parseDiff(diff)) {
+    for (const line of file.header) box.append(diffLine(line, "meta", ""));
+    for (const hunk of file.hunks) {
+      if (actions) box.append(hunkBar(file, hunk, actions));
+      let oldLine = 0;
+      let newLine = 0;
+      for (const line of hunk.lines) {
+        if (line.startsWith("@@")) {
+          const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+          if (match) { oldLine = Number(match[1]); newLine = Number(match[2]); }
+          box.append(diffLine(line, "hunk", ""));
+        } else if (line.startsWith("+")) {
+          box.append(diffLine(line, "add", String(newLine++)));
+        } else if (line.startsWith("-")) {
+          box.append(diffLine(line, "del", String(oldLine++)));
+        } else if (line.startsWith("\\")) {
+          box.append(diffLine(line, "meta", ""));
+        } else {
+          box.append(diffLine(line, "", String(newLine++)));
+          oldLine++;
+        }
+      }
+    }
   }
   return box;
+}
+
+async function applyHunk(patch, target) {
+  const opened = state.fileDiff;
+  await quiet(withBusy("Applying the hunk…", async () => {
+    toast("ok", (await post(`/api/worktree/${target}-hunk`, { patch })).message);
+    await refresh();
+    if (opened) await openFile(opened.path, opened.staged);
+  }));
 }
 
 /* ---------- working tree detail ---------- */
@@ -407,7 +749,7 @@ function fileRow(entry, staged) {
   const [dir, name] = splitPath(entry.path);
   const key = `${staged ? "s" : "u"}:${entry.path}`;
 
-  return el("div", {
+  return Menu.attach(el("div", {
     class: "file-row",
     role: "option",
     tabindex: "0",
@@ -438,7 +780,7 @@ function fileRow(entry, staged) {
         text: "Discard",
       }) : null,
     ]),
-  ]);
+  ]), () => fileMenu(entry, staged));
 }
 
 function renderWorktreeDetail() {
@@ -457,6 +799,7 @@ function renderWorktreeDetail() {
     ]),
   ]));
 
+  const repo = state.data.state.repo;
   const message = el("textarea", {
     id: "commit-message", rows: "3", maxlength: "4000",
     placeholder: "Commit message — describe what this commit does",
@@ -465,15 +808,31 @@ function renderWorktreeDetail() {
   });
   message.value = state.commitMessage;
 
+  const amendBox = el("input", {
+    type: "checkbox", id: "commit-amend",
+    checked: state.amend || undefined,
+    disabled: !repo.head_message,
+    onchange: (event) => {
+      state.amend = event.target.checked;
+      if (state.amend && !state.commitMessage.trim()) state.commitMessage = repo.head_message;
+      renderWorktreeDetail();
+    },
+  });
+
   detail.append(el("div", { class: "commit-box" }, [
     message,
     el("div", { class: "row-actions" }, [
       el("button", {
-        type: "button", class: "btn primary", disabled: staged.length === 0,
+        type: "button", class: "btn primary", disabled: !state.amend && staged.length === 0,
         onclick: () => commitStaged(),
-        text: `Commit ${staged.length} file(s)`,
+        text: state.amend ? "Amend the last commit" : `Commit ${staged.length} file(s)`,
       }),
-      el("span", { class: "staged-note", text: staged.length ? "" : "Stage a file to enable the commit." }),
+      el("label", { class: "amend-toggle", for: "commit-amend",
+        title: repo.head_message ? "Replace the last commit instead of adding one" : "There is no commit to amend yet" },
+        [amendBox, el("span", { text: "Amend" })]),
+      el("span", { class: "staged-note",
+        text: state.amend ? "The last commit is replaced, staged files included."
+          : (staged.length ? "" : "Stage a file to enable the commit.") }),
     ]),
   ]));
 
@@ -500,9 +859,11 @@ function renderWorktreeDetail() {
       el("span", { text: state.fileDiff.path }),
       el("span", { class: `tag ${state.fileDiff.staged ? "verified" : "applied"}`, text: state.fileDiff.staged ? "staged" : "unstaged" }),
     ]));
+    const entry = files.find((file) => file.path === state.fileDiff.path);
+    const hunks = entry && !entry.untracked ? { staged: state.fileDiff.staged } : null;
     detail.append(el("section", { class: "detail-section" }, [
       state.fileDiff.diff.trim()
-        ? renderDiff(state.fileDiff.diff)
+        ? renderDiff(state.fileDiff.diff, hunks)
         : el("p", { class: "prose", text: "No textual diff — the file may be binary or unchanged." }),
     ]));
   }
@@ -518,6 +879,47 @@ async function openFile(path, staged) {
     toast("bad", error.message);
   }
   renderWorktreeDetail();
+}
+
+async function openFileHistory(path) {
+  const detail = clear($("detail"));
+  detail.append(el("div", { class: "empty-state" }, [el("p", { text: "Loading history…" })]));
+  let payload;
+  try {
+    payload = await api(`/api/filehistory?path=${encodeURIComponent(path)}`);
+  } catch (error) {
+    toast("bad", error.message);
+    return;
+  }
+  clear(detail);
+  detail.append(el("div", { class: "detail-head" }, [
+    el("h2", { text: path }),
+    el("div", { class: "detail-sub" }, [
+      el("span", { text: `${payload.commits.length} commit(s)` }),
+      el("button", { type: "button", class: "btn tiny ghost", onclick: () => select("wip"), text: "Back to the working tree" }),
+    ]),
+  ]));
+
+  const list = el("ol", { class: "history" });
+  for (const commit of payload.commits) {
+    list.append(el("li", {}, [
+      el("button", { type: "button", class: "open", onclick: () => openCommit(commit.sha) }, [
+        el("span", { class: "row-title", text: commit.subject || "(no message)" }),
+        el("span", { class: "sha", text: commit.short }),
+        el("span", { class: "who", text: commit.author }),
+        el("span", { class: "relative", text: relativeTime(commit.date) }),
+      ]),
+    ]));
+  }
+  detail.append(el("section", { class: "detail-section" }, [
+    payload.commits.length ? list : el("p", { class: "prose", text: "No commit touched this file yet." }),
+  ]));
+}
+
+function openCommit(sha) {
+  const row = state.rows.find((item) => item.key === `g${sha}`);
+  if (row) { select(row.key); return; }
+  quiet(renderCommitDetail(sha));
 }
 
 async function worktreeAction(action, paths, extra = {}) {
@@ -537,14 +939,49 @@ async function commitStaged() {
     $("commit-message").focus();
     return;
   }
-  await quiet(withBusy("Committing…", async () => {
-    const result = await post("/api/worktree/commit", { message });
+  await quiet(withBusy(state.amend ? "Amending…" : "Committing…", async () => {
+    const result = await post("/api/worktree/commit", { message, amend: state.amend });
     toast("ok", result.message);
     state.commitMessage = "";
+    state.amend = false;
     state.fileDiff = null;
     state.selectedFile = null;
     await refresh(false);
   }));
+}
+
+async function stashWorkingTree() {
+  const answer = await ask({
+    title: "Stash the working tree",
+    hint: "Staged, unstaged and untracked files are put aside and the tree goes back to HEAD.",
+    label: "Message (optional)",
+    placeholder: "what you were in the middle of",
+    submit: "Stash",
+    optional: true,
+  });
+  if (answer) worktreeAction("stash", null, { message: answer.value });
+}
+
+async function createBranch() {
+  const answer = await ask({
+    title: "Create a branch",
+    hint: `Branches from ${state.data.state.repo.branch} and switches to it.`,
+    label: "Branch name",
+    placeholder: "feature/ma-fonctionnalite",
+    submit: "Create",
+  });
+  if (answer) worktreeAction("branch", null, { name: answer.value });
+}
+
+async function createTag() {
+  const answer = await ask({
+    title: "Tag the current commit",
+    label: "Tag name",
+    placeholder: "v1.2.0",
+    submit: "Tag",
+    extra: { label: "Message (optional — an annotated tag)", placeholder: "What this release contains" },
+  });
+  if (answer) worktreeAction("tag-create", null, { name: answer.value, message: answer.extra });
 }
 
 async function switchBranch(name) {
@@ -559,6 +996,16 @@ async function switchBranch(name) {
 
 function actionButton(label, kind, handler, disabled) {
   return el("button", { type: "button", class: `btn ${kind}`, disabled, onclick: handler, text: label });
+}
+
+const CHANGE_LABELS = { apply: "Applying", test: "Running the test command", revert: "Reverting" };
+
+async function changeAction(id, action) {
+  await quiet(withBusy(`${CHANGE_LABELS[action]} on change #${id}…`, async () => {
+    const result = await post(`/api/changes/${id}/${action}`);
+    toast(action === "test" && !result.passed ? "bad" : "ok", result.message);
+    await refresh();
+  }));
 }
 
 async function renderChangeDetail(id) {
@@ -577,24 +1024,15 @@ async function renderChangeDetail(id) {
     change.is_sample ? el("span", { class: "tag sample", text: "sample" }) : null,
   ]));
 
-  const after = (task) => quiet(task().then(() => refresh()));
   const applicable = ["proposed", "failed"].includes(change.status);
+  const testable = ["applied", "verified", "failed"].includes(change.status);
   head.append(el("div", { class: "detail-actions" }, [
-    actionButton("Apply", "primary", () => after(() =>
-      withBusy(`Applying change #${id}…`, async () => {
-        toast("ok", (await post(`/api/changes/${id}/apply`)).message);
-      })), change.is_sample || !applicable || !change.applies_cleanly),
-    actionButton("Run tests", "ghost", () => after(() =>
-      withBusy("Running the test command…", async () => {
-        const result = await post(`/api/changes/${id}/test`);
-        toast(result.passed ? "ok" : "bad", result.message);
-      })), !["applied", "verified", "failed"].includes(change.status)),
+    actionButton("Apply", "primary", () => changeAction(id, "apply"),
+      change.is_sample || !applicable || !change.applies_cleanly),
+    actionButton("Run tests", "ghost", () => changeAction(id, "test"), !testable),
     actionButton("Revert", "danger", () => {
-      if (!confirm(`Reverse change #${id} in the working tree?`)) return;
-      after(() => withBusy(`Reverting change #${id}…`, async () => {
-        toast("ok", (await post(`/api/changes/${id}/revert`)).message);
-      }));
-    }, change.is_sample || !["applied", "verified", "failed"].includes(change.status)),
+      if (confirm(`Reverse change #${id} in the working tree?`)) changeAction(id, "revert");
+    }, change.is_sample || !testable),
   ]));
   detail.append(head);
 
@@ -656,21 +1094,28 @@ async function renderChangeDetail(id) {
 }
 
 async function renderCommitDetail(sha) {
-  const row = state.rows.find((item) => item.key === `g${sha}`);
   const detail = clear($("detail"));
   const commit = await api(`/api/commits/${sha}`);
+  const menu = () => commitMenu({ ...commit, kind: "commit" });
 
-  detail.append(el("div", { class: "detail-head" }, [
-    el("h2", { text: row.subject || "(no message)" }),
+  const head = el("div", { class: "detail-head" }, [
+    el("h2", { text: commit.subject || "(no message)" }),
     el("div", { class: "detail-sub" }, [
-      el("span", { text: row.short }),
-      el("span", { text: row.author }),
-      el("span", { class: "relative", text: relativeTime(row.date) }),
-      ...row.refs.map((ref) => el("span", { class: "tag ref", text: ref })),
+      el("span", { text: commit.short }),
+      el("span", { text: commit.author }),
+      el("span", { class: "relative", text: relativeTime(commit.date) }),
+      ...commit.refs.map((ref) => el("span", { class: "tag ref", text: ref })),
     ]),
-  ]));
+    el("div", { class: "detail-actions" }, [
+      el("button", {
+        type: "button", class: "btn ghost", "aria-haspopup": "menu",
+        onclick: (event) => Menu.show(event, menu()), text: "Actions ▾",
+      }),
+    ]),
+  ]);
+  detail.append(Menu.attach(head, menu));
 
-  if (commit.body && commit.body !== row.subject) {
+  if (commit.body && commit.body !== commit.subject) {
     detail.append(el("section", { class: "detail-section" }, [
       el("h3", { text: "Message" }), el("p", { class: "prose", text: commit.body }),
     ]));
@@ -711,6 +1156,12 @@ function select(key) {
       el("h2", { text: "Could not load this item" }), el("p", { text: error.message }),
     ]));
   });
+}
+
+function openSelectedMenu() {
+  const row = state.rows.find((item) => item.key === state.selected);
+  const node = $(`row-${state.selected}`);
+  if (row && node) Menu.show(node, rowMenu(row));
 }
 
 function move(step) {
@@ -799,22 +1250,6 @@ async function submitImport(event) {
     const result = await withBusy("Importing…", () => post("/api/import", { document: document_ }));
     $("import-modal").close();
     $("import-doc").value = "";
-    toast("ok", result.message);
-    await refresh(false);
-  } catch (failure) {
-    showFormError(error, failure.message);
-  }
-}
-
-async function submitBranch(event) {
-  event.preventDefault();
-  const error = $("branch-error");
-  const name = $("branch-name").value.trim();
-  if (!name) return showFormError(error, "A branch name is required.");
-  try {
-    const result = await withBusy(`Creating ${name}…`, () => post("/api/worktree/branch", { name }));
-    $("branch-modal").close();
-    $("branch-name").value = "";
     toast("ok", result.message);
     await refresh(false);
   } catch (failure) {
@@ -940,8 +1375,7 @@ function bind() {
   $("propose-cancel").addEventListener("click", () => $("propose-modal").close());
   $("import-form").addEventListener("submit", submitImport);
   $("import-cancel").addEventListener("click", () => $("import-modal").close());
-  $("branch-form").addEventListener("submit", submitBranch);
-  $("branch-cancel").addEventListener("click", () => $("branch-modal").close());
+  $("ask-cancel").addEventListener("click", () => $("ask-modal").close());
   $("help-close").addEventListener("click", () => $("help-modal").close());
   $("btn-help").addEventListener("click", () => $("help-modal").showModal());
   $("btn-wip").addEventListener("click", () => select("wip"));
@@ -960,18 +1394,23 @@ function bind() {
     if (!path) return showFormError($("repo-error"), "An absolute path is required.");
     return openRepo(path);
   });
-  $("btn-stash").addEventListener("click", () => {
-    const message = prompt("Stash message (optional)");
-    if (message !== null) worktreeAction("stash", null, { message });
-  });
-  for (const [id, action] of [["btn-fetch", "fetch"], ["btn-pull", "pull"], ["btn-push", "push"]]) {
+  $("btn-stash").addEventListener("click", stashWorkingTree);
+  $("btn-new-tag").addEventListener("click", createTag);
+  $("btn-new-branch").addEventListener("click", createBranch);
+  for (const [id, action] of [["btn-fetch", "fetch"], ["btn-fetch-side", "fetch"],
+    ["btn-pull", "pull"], ["btn-push", "push"]]) {
     $(id).addEventListener("click", () => worktreeAction(action, null));
   }
-  $("btn-new-branch").addEventListener("click", () => {
-    $("branch-error").hidden = true;
-    $("branch-modal").showModal();
-    $("branch-name").focus();
-  });
+  Menu.attach($("btn-push"), () => [
+    { header: "Push" },
+    { label: "Push", run: () => worktreeAction("push", null) },
+    { label: "Force push", hint: "with lease", danger: true,
+      run: () => {
+        if (confirm("Force-push this branch? It overwrites the remote branch, unless someone pushed to it since your last fetch.")) {
+          worktreeAction("push", null, { force: true });
+        }
+      } },
+  ]);
   $("btn-import").addEventListener("click", () => {
     $("import-error").hidden = true;
     $("import-modal").showModal();
@@ -1037,6 +1476,14 @@ function bind() {
       W: () => { if (state.worktree.files.length) select("wip"); },
       i: () => $("btn-index").click(),
       I: () => $("btn-index").click(),
+      b: createBranch,
+      B: createBranch,
+      t: createTag,
+      T: createTag,
+      s: stashWorkingTree,
+      S: stashWorkingTree,
+      ContextMenu: () => openSelectedMenu(),
+      F10: () => { if (event.shiftKey) openSelectedMenu(); },
       "?": () => $("help-modal").showModal(),
       ArrowDown: () => move(1),
       j: () => move(1),

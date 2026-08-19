@@ -42,6 +42,8 @@
   <div class="model-state" id="model-state" role="status" aria-live="polite"></div>
 </header>
 
+<div class="op-bar" id="op-bar" role="alert" hidden></div>
+
 <main class="layout">
   <nav class="sidebar" aria-label="Filters and repository details">
     <section class="panel">
@@ -64,6 +66,24 @@
           aria-label="Create a branch">+</button>
       </div>
       <ul class="branches" id="branches"></ul>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2 class="panel-title">Remote branches</h2>
+        <button type="button" class="icon-btn" id="btn-fetch-side" title="Fetch from the remote"
+          aria-label="Fetch from the remote">⟳</button>
+      </div>
+      <ul class="branches remote" id="remote-branches"></ul>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2 class="panel-title">Tags</h2>
+        <button type="button" class="icon-btn" id="btn-new-tag" title="Tag the current commit"
+          aria-label="Tag the current commit">+</button>
+      </div>
+      <ul class="tags" id="tags"></ul>
     </section>
 
     <section class="panel">
@@ -163,6 +183,7 @@
 
 <dialog class="modal" id="help-modal" aria-labelledby="help-title">
   <h2 id="help-title">Keyboard</h2>
+  <p class="hint">Right-click a commit, a branch, a tag, a stash or a file for its actions.</p>
   <dl class="shortcuts">
     <dt><kbd>N</kbd></dt><dd>Propose a new change</dd>
     <dt><kbd>O</kbd></dt><dd>Open or add a repository</dd>
@@ -172,6 +193,10 @@
     <dt><kbd>↑</kbd> <kbd>↓</kbd> / <kbd>j</kbd> <kbd>k</kbd></dt><dd>Move through the graph</dd>
     <dt><kbd>Enter</kbd></dt><dd>Focus the detail panel</dd>
     <dt><kbd>Esc</kbd></dt><dd>Leave a field or close a dialog</dd>
+    <dt><kbd>Shift</kbd>+<kbd>F10</kbd> / <kbd>≣</kbd></dt><dd>Open the menu for the selected row</dd>
+    <dt><kbd>T</kbd></dt><dd>Tag the current commit</dd>
+    <dt><kbd>S</kbd></dt><dd>Stash the working tree</dd>
+    <dt><kbd>B</kbd></dt><dd>Create a branch</dd>
     <dt><kbd>?</kbd></dt><dd>This dialog</dd>
   </dl>
   <menu class="modal-actions">
@@ -200,18 +225,22 @@
   </form>
 </dialog>
 
-<dialog class="modal small" id="branch-modal" aria-labelledby="branch-title">
-  <form method="dialog" id="branch-form">
-    <h2 id="branch-title">Create a branch</h2>
-    <p class="hint">Branches from the current <code id="branch-base">HEAD</code> and switches to it.</p>
+<dialog class="modal small" id="ask-modal" aria-labelledby="ask-title">
+  <form method="dialog" id="ask-form">
+    <h2 id="ask-title">…</h2>
+    <p class="hint" id="ask-hint"></p>
     <label class="field">
-      <span class="field-label">Branch name <em>required</em></span>
-      <input type="text" id="branch-name" required maxlength="200" placeholder="feature/ma-fonctionnalite" autocomplete="off">
+      <span class="field-label" id="ask-label">Value</span>
+      <input type="text" id="ask-value" maxlength="200" autocomplete="off" spellcheck="false">
     </label>
-    <p class="form-error" id="branch-error" role="alert" hidden></p>
+    <label class="field" id="ask-extra-field" hidden>
+      <span class="field-label" id="ask-extra-label">Detail</span>
+      <textarea id="ask-extra" rows="3" maxlength="1000"></textarea>
+    </label>
+    <p class="form-error" id="ask-error" role="alert" hidden></p>
     <menu class="modal-actions">
-      <button type="button" class="btn ghost" id="branch-cancel">Cancel</button>
-      <button type="submit" class="btn primary">Create</button>
+      <button type="button" class="btn ghost" id="ask-cancel">Cancel</button>
+      <button type="submit" class="btn primary" id="ask-submit">OK</button>
     </menu>
   </form>
 </dialog>
@@ -219,6 +248,7 @@
 <div class="toasts" id="toasts" aria-live="assertive" aria-atomic="false"></div>
 
 <script src="/assets/graph.js"></script>
+<script src="/assets/menu.js"></script>
 <script src="/assets/app.js"></script>
 </body>
 </html>
