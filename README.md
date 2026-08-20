@@ -121,7 +121,10 @@ it, drop. On a file:
 stage, unstage, discard, ignore, file history, blame, copy path — and, in a commit, restore that
 version into the working tree. On a recorded change: apply, run tests, revert.
 
-- **Per-hunk staging** — a working-tree diff carries Stage, Unstage and Discard on each hunk.
+- **Per-hunk and per-line staging** — a working-tree diff carries Stage, Unstage and Discard on
+  each hunk; click the line numbers to pick individual lines and act on exactly those. An unpicked
+  removal stays as context and an unpicked addition disappears, so what git receives is a patch of
+  precisely what you chose.
 - **Search** — typing filters the rows on screen; <kbd>Enter</kbd> asks git instead, across every
   branch, by message, author or touched path.
 - **Depth** — the graph says how far back it has looked ("80 of 3007 commits loaded") and goes
@@ -337,7 +340,7 @@ Stated plainly, because some of them are deliberate:
   **not** resolve conflicts in an editor, rebase interactively, or manage submodules, worktrees
   and LFS. A conflict is named and counted, and can be settled by keeping one side whole;
   anything finer is your editor's job, then Continue or Abort from the bar.
-- Staging is per file or per hunk, never per line.
+- Staging is per file, per hunk, or per line.
 - Pull is fast-forward only, on purpose: no implicit merge commit behind your back.
 - Credentials are git's business. GitSquid never asks for or stores one, and a remote operation that
   would need an interactive prompt fails with an explanation instead of hanging.

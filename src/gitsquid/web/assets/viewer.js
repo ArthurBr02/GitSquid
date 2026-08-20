@@ -163,7 +163,7 @@ async function openFileAtCommit(sha, path) {
 }
 
 async function openFileView(context, path) {
-  state.view = { context, path, mode: "diff", diff: null, loading: true };
+  state.view = { context, path, mode: "diff", diff: null, loading: true, picks: new Set() };
   renderViewer();
   try {
     const payload = await context.fetch(path);
@@ -372,6 +372,8 @@ function renderViewer() {
   }
   const singleFile = Boolean(path);
   body.append(renderDiff(diff, context.hunks ? context.hunks(entry) : null, { headers: !singleFile }));
+  const bar = pickBar();
+  if (bar) body.append(bar);
   if (!body.contains(document.activeElement)) body.scrollTop = 0;
   if (truncated) {
     body.append(el("p", { class: "banner warn", text: "This patch is very large and was truncated for display." }));
@@ -406,10 +408,18 @@ function parseDiff(text) {
   return files;
 }
 
-function diffLine(kind, oldNumber, newNumber, content) {
-  return el("div", { class: kind }, [
-    el("span", { class: "ln old", "aria-hidden": "true", text: oldNumber }),
-    el("span", { class: "ln new", "aria-hidden": "true", text: newNumber }),
+function diffLine(kind, oldNumber, newNumber, content, pick = null) {
+  const gutter = (side, number) => (pick
+    ? el("button", {
+        type: "button", class: `ln ${side} pickable`, tabindex: "-1",
+        "aria-label": `${pick.picked ? "Unpick" : "Pick"} line ${number || ""}`,
+        onclick: () => togglePick(pick.key),
+        text: number,
+      })
+    : el("span", { class: `ln ${side}`, "aria-hidden": "true", text: number }));
+  return el("div", { class: `${kind}${pick && pick.picked ? " picked" : ""}` }, [
+    gutter("old", oldNumber),
+    gutter("new", newNumber),
     el("span", { class: "tx" }, content),
   ]);
 }
@@ -440,6 +450,106 @@ function markedLine(text, cut) {
   ];
 }
 
+/* A patch for exactly the lines picked: an unpicked addition vanishes, an unpicked removal
+   becomes context, and each hunk header is recounted around what is left. */
+function linePatch(file, picks) {
+  const body = [];
+  let drift = 0;
+  file.hunks.forEach((hunk, hunkIndex) => {
+    const lines = [];
+    let before = 0;
+    let after = 0;
+    let kept = false;
+    let emitted = false;
+    hunk.lines.slice(1).forEach((line, lineIndex) => {
+      if (line.startsWith("\\")) {
+        if (emitted) lines.push(line);
+        return;
+      }
+      const picked = picks.has(`${hunkIndex}:${lineIndex}`);
+      emitted = true;
+      if (line.startsWith("+")) {
+        emitted = picked;
+        if (!picked) return;
+        lines.push(line);
+        after += 1;
+        kept = true;
+      } else if (line.startsWith("-")) {
+        before += 1;
+        if (picked) {
+          lines.push(line);
+          kept = true;
+        } else {
+          lines.push(` ${line.slice(1)}`);
+          after += 1;
+        }
+      } else {
+        lines.push(line);
+        before += 1;
+        after += 1;
+      }
+    });
+    if (!kept) return;
+    const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(hunk.lines[0]);
+    const start = header ? Number(header[1]) : 1;
+    body.push(`@@ -${start},${before} +${start + drift},${after} @@${header ? header[3] : ""}`, ...lines);
+    drift += after - before;
+  });
+  return body.length ? `${[...file.header, ...body].join("\n")}\n` : "";
+}
+
+function pickedLines() {
+  return state.view && state.view.picks ? state.view.picks : new Set();
+}
+
+function togglePick(key) {
+  const picks = new Set(pickedLines());
+  if (picks.has(key)) picks.delete(key);
+  else picks.add(key);
+  state.view = { ...state.view, picks };
+  renderViewer();
+}
+
+async function applyPicked(target) {
+  const view = state.view;
+  const file = parseDiff(view.diff)[0];
+  const patch = linePatch(file, view.picks);
+  if (!patch) return;
+  const said = {
+    stage: `Staged ${plural(view.picks.size, "line")}.`,
+    unstage: `Unstaged ${plural(view.picks.size, "line")}.`,
+    discard: `Discarded ${plural(view.picks.size, "line")}.`,
+  }[target];
+  state.view = { ...view, picks: new Set() };
+  await applyHunk(patch, target, said);
+}
+
+function pickBar() {
+  const picks = pickedLines();
+  if (!picks.size) return null;
+  const staged = state.view.context.staged;
+  return el("div", { class: "pick-bar" }, [
+    el("span", { text: `${plural(picks.size, "line")} picked` }),
+    el("button", {
+      type: "button", class: "btn tiny",
+      onclick: () => applyPicked(staged ? "unstage" : "stage"),
+      text: staged ? "Unstage them" : "Stage them",
+    }),
+    staged ? null : el("button", {
+      type: "button", class: "btn tiny danger",
+      onclick: () => {
+        if (confirm(`Discard ${plural(picks.size, "line")}? They are lost.`)) applyPicked("discard");
+      },
+      text: "Discard them",
+    }),
+    el("button", {
+      type: "button", class: "btn tiny ghost",
+      onclick: () => { state.view = { ...state.view, picks: new Set() }; renderViewer(); },
+      text: "Clear",
+    }),
+  ]);
+}
+
 function hunkBar(file, hunk, actions) {
   const patch = [...file.header, ...hunk.lines].join("\n") + "\n";
   const buttons = actions.staged
@@ -458,37 +568,47 @@ function hunkBar(file, hunk, actions) {
 }
 
 /* A run of removed lines followed by as many added ones is one edit, read line by line. */
-function renderRewrite(box, removed, added, numbers) {
+/* A run of removed lines followed by as many added ones is one edit, read line by line.
+   Each entry is [text, position], the position being the line's place in the hunk. */
+function renderRewrite(box, removed, added, numbers, pickFor) {
   const paired = removed.length === added.length;
-  removed.forEach((line, index) => {
-    const cut = paired ? inlineParts(line.slice(1), added[index].slice(1)) : null;
-    box.append(diffLine("del", String(numbers.old++), "", markedLine(line, cut)));
+  removed.forEach(([line, position], index) => {
+    const cut = paired ? inlineParts(line.slice(1), added[index][0].slice(1)) : null;
+    box.append(diffLine("del", String(numbers.old++), "", markedLine(line, cut), pickFor(position)));
   });
-  added.forEach((line, index) => {
-    const cut = paired ? inlineParts(removed[index].slice(1), line.slice(1)) : null;
-    box.append(diffLine("add", "", String(numbers.new++), markedLine(line, cut)));
+  added.forEach(([line, position], index) => {
+    const cut = paired ? inlineParts(removed[index][0].slice(1), line.slice(1)) : null;
+    box.append(diffLine("add", "", String(numbers.new++), markedLine(line, cut), pickFor(position)));
   });
 }
 
 const MAX_DIFF_LINES = 4000;
 
-/* `actions` is set only for a working-tree file, where a single hunk can be staged. */
+/* `actions` is set only for a working-tree file, where a hunk — or a line — can be staged. */
 function renderDiff(diff, actions = null, { headers = true } = {}) {
   const box = el("pre", { class: "diff" });
+  const picks = pickedLines();
   let budget = MAX_DIFF_LINES;
   for (const file of parseDiff(diff)) {
     if (budget <= 0) break;
     if (headers) for (const line of file.header) box.append(diffLine("meta", "", "", [line]));
-    for (const hunk of file.hunks) {
+    file.hunks.forEach((hunk, hunkIndex) => {
+      if (budget <= 0) return;
       if (actions) box.append(hunkBar(file, hunk, actions));
       const numbers = { old: 0, new: 0 };
       if ((budget -= hunk.lines.length) <= 0) {
         box.append(diffLine("meta", "", "", [
           "\u2026 the rest of this patch is not shown. Open a file on its own to read it in full.",
         ]));
-        break;
+        return;
       }
       const lines = hunk.lines;
+      const pickFor = (position) => {
+        if (!actions) return null;
+        const key = `${hunkIndex}:${position}`;
+        return { key, picked: picks.has(key) };
+      };
+
       for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
         if (line.startsWith("@@")) {
@@ -498,27 +618,34 @@ function renderDiff(diff, actions = null, { headers = true } = {}) {
         } else if (line.startsWith("-")) {
           const removed = [];
           const added = [];
-          while (index < lines.length && lines[index].startsWith("-")) removed.push(lines[index++]);
-          while (index < lines.length && lines[index].startsWith("+")) added.push(lines[index++]);
+          while (index < lines.length && lines[index].startsWith("-")) {
+            removed.push([lines[index], index - 1]);
+            index += 1;
+          }
+          while (index < lines.length && lines[index].startsWith("+")) {
+            added.push([lines[index], index - 1]);
+            index += 1;
+          }
           index -= 1;
-          renderRewrite(box, removed, added, numbers);
+          renderRewrite(box, removed, added, numbers, pickFor);
         } else if (line.startsWith("+")) {
-          box.append(diffLine("add", "", String(numbers.new++), [line]));
+          box.append(diffLine("add", "", String(numbers.new++), [line], pickFor(index - 1)));
         } else if (line.startsWith("\\")) {
           box.append(diffLine("meta", "", "", [line]));
         } else {
           box.append(diffLine("", String(numbers.old++), String(numbers.new++), [line || " "]));
         }
       }
-    }
+    });
   }
   return box;
 }
 
-async function applyHunk(patch, target) {
+async function applyHunk(patch, target, said = "") {
   const opened = state.view;
-  await quiet(withBusy("Applying the hunk…", async () => {
-    toast("ok", (await post(`/api/worktree/${target}-hunk`, { patch })).message);
+  await quiet(withBusy(said ? "Applying…" : "Applying the hunk…", async () => {
+    const result = await post(`/api/worktree/${target}-hunk`, { patch });
+    toast("ok", said || result.message);
     await refresh();
     if (opened) await openFileView(worktreeContext(opened.context.staged), opened.path);
   }));

@@ -114,6 +114,20 @@ class TestTheWorkingTree:
         page.wait_for_timeout(400)
         assert "1 staged" in page.inner_text("#wip-row")
 
+    def test_one_line_can_be_picked_and_staged(self, page):
+        page.click("#wip-row")
+        page.wait_for_selector(".file-row")
+        page.locator(".file-row", has_text="calc.py").first.click()
+        page.wait_for_selector("#viewer:not([hidden]) .diff")
+
+        page.locator(".diff .add .ln.pickable").first.click()
+        page.wait_for_selector(".pick-bar")
+        assert "1 line picked" in page.inner_text(".pick-bar")
+        page.locator(".pick-bar button", has_text="Stage them").click()
+        page.wait_for_selector(".toast")
+        page.wait_for_timeout(500)
+        assert "Staged 1 line" in page.inner_text(".toast")
+
     def test_a_hunk_carries_its_own_actions(self, page):
         page.click("#wip-row")
         page.wait_for_selector(".file-row")

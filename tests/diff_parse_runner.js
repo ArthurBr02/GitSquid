@@ -8,7 +8,7 @@ const path = require("path");
 const source = fs.readFileSync(
   path.join(__dirname, "..", "src", "gitsquid", "web", "assets", "viewer.js"), "utf8",
 );
-const exposed = new Function(`${source}\nreturn { parseDiff, inlineParts, filePathOf, fileStatusOf, commonRoot };`)();
+const exposed = new Function(`${source}\nreturn { parseDiff, inlineParts, filePathOf, fileStatusOf, commonRoot, linePatch };`)();
 
 let input = "";
 process.stdin.setEncoding("utf8");
@@ -23,6 +23,11 @@ process.stdin.on("end", () => {
       hunks: file.hunks.map((hunk) => hunk.lines),
     }));
     process.stdout.write(JSON.stringify({ files }));
+    return;
+  }
+  if (request.op === "lines") {
+    const file = exposed.parseDiff(request.diff)[0];
+    process.stdout.write(JSON.stringify({ patch: exposed.linePatch(file, new Set(request.picks)) }));
     return;
   }
   if (request.op === "root") {

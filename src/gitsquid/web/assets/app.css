@@ -770,3 +770,21 @@ body.resizing { cursor: col-resize; user-select: none; }
 
 .branch.detached { color: var(--amber); }
 .branch.detached::before { content: "⚠ "; }
+
+/* ---------- picking lines ---------- */
+.diff .ln.pickable {
+  border: 0; padding-right: 9px; cursor: pointer;
+  font: inherit; color: var(--text-faint);
+}
+.diff .ln.pickable:hover { background: var(--bg-active); color: var(--text); }
+.diff .picked .ln { background: var(--accent); color: var(--accent-ink); }
+.diff .picked .tx { box-shadow: inset 2px 0 0 var(--accent); }
+.pick-bar {
+  position: sticky; bottom: 0;
+  display: flex; align-items: center; gap: var(--s2);
+  margin-top: var(--s2); padding: 8px var(--s3);
+  background: var(--bg-panel); border: 1px solid var(--line); border-radius: var(--radius);
+  font: 12px var(--sans); color: var(--text-dim);
+  box-shadow: 0 -6px 18px var(--shadow);
+}
+.pick-bar .btn:nth-of-type(1) { margin-left: auto; }
