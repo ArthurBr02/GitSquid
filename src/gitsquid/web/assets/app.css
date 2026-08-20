@@ -737,3 +737,25 @@ body.resizing { cursor: col-resize; user-select: none; }
   color: inherit; font: inherit; cursor: pointer;
 }
 .model-chip:hover { color: var(--text-dim); text-decoration: underline; }
+
+/* ---------- blame ---------- */
+.blame { margin: 0; font: 12px/1.5 var(--mono); }
+.blame-line { display: flex; }
+.blame-line .who {
+  flex: 0 0 auto; width: 150px; padding: 0 10px 0 6px;
+  border: 0; border-right: 1px solid var(--line-soft);
+  background: transparent; color: var(--text-faint);
+  font: 11px var(--mono); text-align: left; cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.blame-line .who.local { cursor: default; color: var(--amber); }
+.blame-line.start .who { color: var(--accent); }
+.blame-line .who:hover:not(.local) { background: var(--bg-hover); }
+.blame-line .ln {
+  flex: 0 0 auto; width: 46px; padding-right: 10px;
+  text-align: right; color: var(--text-faint); user-select: none;
+  background: rgba(255, 255, 255, .02);
+}
+.blame-line .tx { flex: 1 1 auto; padding: 0 12px; white-space: pre; }
+.blame-line:hover { background: var(--bg-hover); }
+.viewer-body.wrap .blame-line .tx { white-space: pre-wrap; word-break: break-word; }

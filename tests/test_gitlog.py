@@ -188,3 +188,42 @@ class TestSearch:
 
     def test_nothing_matches_nothing(self, history):
         assert gitlog.search(history, "introuvable-xyz") == []
+
+
+class TestBlame:
+    def test_every_line_names_who_last_touched_it(self, repo):
+        commit_file(repo, "poeme.txt", "un\ndeux\n", "premier jet")
+        (repo / "poeme.txt").write_text("un\ndeux modifie\n", encoding="utf-8")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "retouche")
+
+        lines = gitlog.blame(repo, "poeme.txt")["lines"]
+        assert [line["text"] for line in lines] == ["un", "deux modifie"]
+        assert lines[0]["summary"] == "premier jet"
+        assert lines[1]["summary"] == "retouche"
+        assert lines[0]["sha"] != lines[1]["sha"]
+        assert lines[0]["author"] == "Tester"
+        assert lines[0]["date"].startswith("20")
+
+    def test_blame_can_be_asked_at_an_older_commit(self, repo):
+        commit_file(repo, "poeme.txt", "un\n", "premier jet")
+        older = git(repo, "rev-parse", "HEAD").stdout.strip()
+        commit_file(repo, "poeme.txt", "un\ndeux\n", "suite")
+
+        assert len(gitlog.blame(repo, "poeme.txt", rev=older)["lines"]) == 1
+
+    def test_uncommitted_work_is_blamed_on_nobody(self, repo):
+        commit_file(repo, "poeme.txt", "un\n", "premier jet")
+        (repo / "poeme.txt").write_text("un\nligne en cours\n", encoding="utf-8")
+
+        lines = gitlog.blame(repo, "poeme.txt")["lines"]
+        assert lines[1]["sha"] == "0" * 40
+        assert lines[1]["text"] == "ligne en cours"
+
+    def test_a_path_outside_the_repository_is_refused(self, repo):
+        with pytest.raises(ValueError, match="outside the repository"):
+            gitlog.blame(repo, "../../etc/passwd")
+
+    def test_an_unknown_file_is_reported(self, repo):
+        with pytest.raises(ValueError, match="cannot blame"):
+            gitlog.blame(repo, "jamais-vu.py")

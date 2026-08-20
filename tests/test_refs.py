@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from gitsquid import gitlog, refs
+from gitsquid import gitcmd, gitlog, refs
 from gitsquid.gitcmd import GitError
 from tests.conftest import git
 
@@ -91,3 +91,35 @@ class TestRemoteBranches:
         for bad in ["main", "ailleurs/main", "origin/", ""]:
             with pytest.raises(GitError, match="not a remote branch"):
                 refs.track_remote_branch(repo_with_remote, bad)
+
+
+class TestRemotes:
+    def test_a_remote_can_be_added_and_removed(self, repo):
+        assert "origin" in refs.add_remote(repo, "origin", "https://example.invalid/depot.git")
+        assert [entry["name"] for entry in gitcmd.remotes(repo)] == ["origin"]
+        assert "Removed" in refs.remove_remote(repo, "origin")
+        assert gitcmd.remotes(repo) == []
+
+    def test_an_ssh_or_local_remote_is_accepted(self, repo, tmp_path):
+        refs.add_remote(repo, "ssh-one", "git@example.invalid:group/depot.git")
+        refs.add_remote(repo, "local", str(tmp_path))
+        assert {entry["name"] for entry in gitcmd.remotes(repo)} == {"ssh-one", "local"}
+
+    def test_a_hostile_name_or_url_is_refused(self, repo):
+        for name, url in [
+            ("-x", "https://example.invalid/d.git"),
+            ("has space", "https://example.invalid/d.git"),
+            ("origin", "--upload-pack=touch"),
+            ("origin", "not a url"),
+        ]:
+            with pytest.raises(GitError):
+                refs.add_remote(repo, name, url)
+
+    def test_the_same_name_twice_is_refused(self, repo):
+        refs.add_remote(repo, "origin", "https://example.invalid/depot.git")
+        with pytest.raises(GitError, match="already exists"):
+            refs.add_remote(repo, "origin", "https://example.invalid/other.git")
+
+    def test_removing_what_is_not_there_is_refused(self, repo):
+        with pytest.raises(GitError, match="no remote called"):
+            refs.remove_remote(repo, "absent")

@@ -516,6 +516,7 @@ function fileMenu(entry, staged) {
       run: () => worktreeAction(staged ? "unstage" : "stage", [entry.path]) },
     { label: "Open the diff", run: () => openFileView(worktreeContext(staged), entry.path) },
     { label: "File history", run: () => openFileHistory(entry.path) },
+    { label: "Blame", hint: "who wrote what", run: () => openBlame(worktreeContext(staged), entry.path) },
     "-",
     { label: "Ignore it", hint: ".gitignore", disabled: staged,
       run: confirmed(`Add ${entry.path} to .gitignore?`, "ignore", { paths: [entry.path] }) },
@@ -584,7 +585,7 @@ function section(key, { title, count, action, rows, empty }) {
     action ? el("button", {
       type: "button", class: "icon-btn section-action", title: action.title,
       "aria-label": action.title,
-      onclick: (event) => { event.preventDefault(); event.stopPropagation(); action.run(); },
+      onclick: (event) => { event.preventDefault(); event.stopPropagation(); action.run(event); },
     }, [action.label]) : null,
   ]);
   const body = el("div", { class: "section-body" }, rows.length ? rows : [
@@ -646,8 +647,14 @@ function renderSidebar() {
   sidebar.append(section("remotes", {
     title: "Remote branches",
     count: remote.length,
-    action: hasRemote ? { label: "⟳", title: "Fetch from the remote", run: () => worktreeAction("fetch", null) } : null,
-    empty: hasRemote ? "Nothing fetched yet." : "No remote configured.",
+    action: {
+      label: hasRemote ? "⟳" : "+",
+      title: hasRemote ? "Fetch, or manage the remotes" : "Add a remote",
+      run: hasRemote
+        ? (event) => Menu.show(event || $("sidebar"), remotesMenu(repo))
+        : addRemote,
+    },
+    empty: hasRemote ? "Nothing fetched yet." : "No remote yet — add one to push.",
     rows: remote.map((entry) => treeRow({
       label: entry.name,
       meta: entry.tracked ? "tracked" : entry.sha,
@@ -836,6 +843,7 @@ function commitContext(commit) {
   return {
     kind: "commit",
     where: commit.short,
+    rev: commit.sha,
     files: commit.files,
     fetch: (path) => api(`/api/commits/${commit.sha}/patch?path=${encodeURIComponent(path)}${readingFlags()}`),
   };
@@ -853,6 +861,7 @@ function worktreeContext(staged) {
   return {
     kind: "worktree",
     staged,
+    rev: "",
     where: staged ? "staged" : "working tree",
     files,
     fetch: (path) => api(`/api/filediff?path=${encodeURIComponent(path)}&staged=${staged ? 1 : 0}${readingFlags()}`),
@@ -902,7 +911,13 @@ function diffViewMenu() {
     if (refetch && state.view) openFileView(state.view.context, state.view.path);
     else renderViewer();
   };
+  const view = state.view;
   return [
+    { header: "This file" },
+    view && view.mode === "blame"
+      ? { label: "Show the diff", run: () => openFileView(view.context, view.path) }
+      : { label: "Blame", hint: "who wrote what", disabled: !view || !view.path,
+          run: () => openBlame(view.context, view.path) },
     { header: "Reading" },
     { label: "Wrap long lines", className: state.diffView.wrap ? "on" : "", run: toggle("wrap", false) },
     { label: "Ignore whitespace", className: state.diffView.space ? "on" : "", run: toggle("space", true) },
@@ -919,8 +934,50 @@ function diffViewMenu() {
   ];
 }
 
+const UNBORN = "0".repeat(40);
+
+/* Who last touched each line — the other question you ask of a file. */
+async function openBlame(context, path) {
+  state.view = { context, path, mode: "blame", loading: true };
+  renderViewer();
+  try {
+    const rev = context.rev ? `&rev=${context.rev}` : "";
+    const payload = await api(`/api/blame?path=${encodeURIComponent(path)}${rev}`);
+    if (state.view && state.view.path === path) {
+      state.view = { ...state.view, blame: payload, loading: false };
+    }
+  } catch (error) {
+    state.view = { ...state.view, loading: false, error: error.message };
+  }
+  renderViewer();
+  markOpenFile();
+}
+
+function renderBlame(payload) {
+  const box = el("pre", { class: "blame" });
+  let previous = null;
+  payload.lines.forEach((line, index) => {
+    const starts = line.sha !== previous;
+    previous = line.sha;
+    const local = line.sha === UNBORN;
+    box.append(el("div", { class: `blame-line${starts ? " start" : ""}` }, [
+      local
+        ? el("span", { class: "who local", text: starts ? "uncommitted" : "" })
+        : el("button", {
+            type: "button", class: "who",
+            title: starts ? `${line.summary}\n${line.author} · ${new Date(line.date).toLocaleString()}` : "",
+            onclick: () => openCommit(line.sha),
+            text: starts ? `${line.short} ${line.author.split(" ")[0]}` : "",
+          }),
+      el("span", { class: "ln", "aria-hidden": "true", text: String(index + 1) }),
+      el("span", { class: "tx", text: line.text || " " }),
+    ]));
+  });
+  return box;
+}
+
 async function openFileView(context, path) {
-  state.view = { context, path, diff: null, loading: true };
+  state.view = { context, path, mode: "diff", diff: null, loading: true };
   renderViewer();
   try {
     const payload = await context.fetch(path);
@@ -973,6 +1030,17 @@ function fileStats(entry) {
 }
 
 /* The same file row in a commit, in a change, and in the working tree. */
+function fileRowMenu(context, entry) {
+  return [
+    { header: entry.path },
+    { label: "Show the diff", run: () => openFileView(context, entry.path) },
+    { label: "Blame", hint: "who wrote what", run: () => openBlame(context, entry.path) },
+    { label: "File history", run: () => openFileHistory(entry.path) },
+    "-",
+    { label: "Copy path", run: () => copy(entry.path, "Path") },
+  ];
+}
+
 function fileListRow(context, entry, extras = []) {
   const [dir, name] = splitPath(entry.path);
   const row = el("div", {
@@ -994,7 +1062,7 @@ function fileListRow(context, entry, extras = []) {
     el("span", { class: "stats" }, fileStats(entry)),
     ...extras,
   ]);
-  return row;
+  return extras.length ? row : Menu.attach(row, () => fileRowMenu(context, entry));
 }
 
 const STATUS_WORDS = {
@@ -1011,7 +1079,7 @@ function renderViewer() {
   viewer.hidden = graphIsShowing;
   if (graphIsShowing) return;
 
-  const { context, path, diff, loading, truncated, error } = state.view;
+  const { context, path, diff, loading, truncated, error, mode, blame } = state.view;
   const entry = context.files.find((file) => file.path === path) || { status: "M", path };
   const [dir, name] = splitPath(path);
   const at = context.files.findIndex((file) => file.path === path);
@@ -1023,6 +1091,7 @@ function renderViewer() {
           [el("span", { class: "dir", text: `${dir}\u200e` }), el("span", { class: "name", text: name })])
       : el("span", { class: "path" }, [el("span", { class: "name", text: `Whole patch of ${context.where}` })]),
     el("span", { class: "stats" }, fileStats(entry)),
+    mode === "blame" ? el("span", { class: "tag ref", text: "blame" }) : null,
     el("span", { class: "where", text: context.where }),
     el("button", {
       type: "button", class: "icon-btn", title: "How this diff is shown",
@@ -1053,6 +1122,13 @@ function renderViewer() {
   }
   if (error) {
     body.append(el("p", { class: "banner bad", text: error }));
+    return;
+  }
+  if (mode === "blame") {
+    body.append(renderBlame(blame));
+    if (blame.truncated) {
+      body.append(el("p", { class: "banner warn", text: "Only the first eight thousand lines are blamed." }));
+    }
     return;
   }
   if (!diff || !diff.trim()) {
@@ -1413,6 +1489,32 @@ async function createBranch() {
     submit: "Create",
   });
   if (answer) worktreeAction("branch", null, { name: answer.value });
+}
+
+function remotesMenu(repo) {
+  return [
+    { header: "Remotes" },
+    { label: "Fetch and prune", run: () => worktreeAction("fetch", null) },
+    ...repo.remotes.map((remote) => ({
+      label: `Remove ${remote.name}`, hint: remote.url.slice(0, 28), danger: true,
+      run: confirmed(`Remove the remote ${remote.name}? Nothing local is touched.`,
+        "remote-remove", { name: remote.name }),
+    })),
+    "-",
+    { label: "Add a remote…", run: addRemote },
+  ];
+}
+
+async function addRemote() {
+  const answer = await ask({
+    title: "Add a remote",
+    hint: "Nothing is fetched or pushed until you ask for it.",
+    label: "Name",
+    value: "origin",
+    submit: "Add",
+    extra: { label: "URL", placeholder: "git@example.com:group/project.git" },
+  });
+  if (answer) worktreeAction("remote-add", null, { name: answer.value, url: answer.extra });
 }
 
 async function createTag() {

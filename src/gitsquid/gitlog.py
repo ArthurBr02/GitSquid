@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .gitcmd import run
@@ -294,6 +295,62 @@ def file_history(repo: Path, path: str, *, limit: int = 50) -> list[dict[str, st
                 "date": fields[3], "subject": fields[4],
             })
     return found
+
+
+MAX_BLAME_LINES = 8000
+
+
+def blame(repo: Path, path: str, *, rev: str = "") -> dict:
+    """Who last touched each line. `rev` empty means the working tree, warts and all."""
+    if not is_safe_relative_path(path):
+        raise ValueError("Refusing a path outside the repository.")
+    if rev:
+        _require_sha(rev)
+    args = ["blame", "--porcelain", "-w"]
+    if rev:
+        args.append(rev)
+    result = run(repo, [*args, "--", path], timeout=120)
+    if result.returncode != 0:
+        raise ValueError("git cannot blame this file — it may be binary, or absent at that commit.")
+
+    authors: dict[str, dict[str, str]] = {}
+    lines: list[dict] = []
+    current = ""
+    for raw in result.stdout.split("\n"):
+        if raw.startswith("\t"):
+            meta = authors.get(current, {})
+            lines.append({
+                "sha": current,
+                "short": current[:7],
+                "author": meta.get("author", ""),
+                "date": meta.get("date", ""),
+                "summary": meta.get("summary", ""),
+                "text": raw[1:],
+            })
+            if len(lines) >= MAX_BLAME_LINES:
+                break
+            continue
+        if not raw:
+            continue
+        head, _, rest = raw.partition(" ")
+        if len(head) == 40 and all(char in "0123456789abcdef" for char in head):
+            current = head
+            authors.setdefault(current, {})
+        elif current:
+            if raw.startswith("author "):
+                authors[current]["author"] = rest
+            elif raw.startswith("author-time "):
+                authors[current]["date"] = _iso(rest.split(" ")[0])
+            elif raw.startswith("summary "):
+                authors[current]["summary"] = rest
+    return {"path": path, "rev": rev, "lines": lines, "truncated": len(lines) >= MAX_BLAME_LINES}
+
+
+def _iso(epoch: str) -> str:
+    try:
+        return datetime.fromtimestamp(int(epoch), tz=timezone.utc).isoformat()
+    except (ValueError, OverflowError):
+        return ""
 
 
 _OPERATIONS = (

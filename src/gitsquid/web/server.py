@@ -26,6 +26,7 @@ AUDITED_ACTIONS = frozenset({
     "merge", "rebase", "cherry-pick", "revert-commit", "reset", "checkout-commit", "branch-from",
     "branch", "delete-branch", "rename-branch", "checkout-remote", "delete-remote-branch",
     "tag-create", "tag-delete", "tag-push", "push", "pull", "stash-branch", "abort", "continue",
+    "remote-add", "remote-remove",
 })
 MAX_BODY_BYTES = 2 * 1024 * 1024
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
@@ -210,6 +211,12 @@ class UIServer:
                                                ignore_whitespace=ignore_whitespace,
                                                context=context)}
         except GitError as exc:
+            raise ApiError(str(exc)) from exc
+
+    def blame(self, path: str, rev: str) -> dict:
+        try:
+            return gitlog.blame(self.settings.repo, path, rev=rev)
+        except ValueError as exc:
             raise ApiError(str(exc)) from exc
 
     def file_history(self, path: str) -> dict:
@@ -418,6 +425,8 @@ def _handlers(repo: Path, payload: dict):
         "stash-drop": lambda: worktree.stash_drop(repo, _string(payload, "ref")),
         "stash-branch": lambda: worktree.stash_branch(repo, _string(payload, "ref"), _string(payload, "name")),
         "rename-branch": lambda: refs.rename_branch(repo, branch(), _string(payload, "name")),
+        "remote-add": lambda: refs.add_remote(repo, _string(payload, "name"), _string(payload, "url")),
+        "remote-remove": lambda: refs.remove_remote(repo, _string(payload, "name")),
         "push-branch": lambda: refs.push_branch(repo, branch()),
         "checkout-remote": lambda: refs.track_remote_branch(repo, branch()),
         "delete-remote-branch": lambda: refs.delete_remote_branch(repo, branch()),
@@ -544,6 +553,9 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, self.ui.file_diff(
                     (query.get("path") or [""])[0], (query.get("staged") or ["0"])[0] == "1",
                     (query.get("ws") or ["0"])[0] == "1", _int(query, "ctx", 3)))
+            elif route == "/api/blame":
+                self._json(HTTPStatus.OK, self.ui.blame(
+                    (query.get("path") or [""])[0], (query.get("rev") or [""])[0]))
             elif route == "/api/search":
                 self._json(HTTPStatus.OK, self.ui.search((query.get("q") or [""])[0]))
             elif route == "/api/filehistory":
