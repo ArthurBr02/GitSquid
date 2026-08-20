@@ -23,6 +23,7 @@ const state = {
   view: null,
   painting: null,
   limit: 80,
+  diffView: { wrap: recall("diff.wrap", "off") === "on", space: recall("diff.space", "off") === "on" },
   search: null,
   amend: false,
   busy: false,
@@ -362,8 +363,18 @@ async function askThen(question, action, build) {
 function commitMenu(row) {
   const branch = state.data.state.repo.branch;
   const sha = row.sha;
+  const isHead = (row.refs || []).some((ref) => ref.startsWith("HEAD"));
+  const parent = (row.parents || [])[0];
   return [
     { header: `Commit ${row.short}` },
+    ...(isHead && parent && (row.parents || []).length === 1 ? [
+      { label: "Amend this commit…", hint: "message and files",
+        run: () => { select("wip"); state.amend = true; state.commitMessage = ""; renderWorktreeDetail(); } },
+      { label: "Undo this commit", hint: "keeps the work",
+        run: confirmed(`Undo ${row.short}? Its changes come back as staged work, nothing is lost.`,
+          "reset", { sha: parent, mode: "soft" }) },
+      "-",
+    ] : []),
     { label: "Check out this commit", hint: "detached",
       run: confirmed(`Check out ${row.short}? HEAD becomes detached — create a branch to keep work here.`, "checkout-commit", { sha }) },
     { label: "New branch here…",
@@ -748,6 +759,25 @@ function refreshOnFocus() {
   quiet(refresh());
 }
 
+const THEMES = { system: "Follow the system", light: "Light", dark: "Dark" };
+
+function applyTheme(name) {
+  const root = document.documentElement;
+  if (name === "system") root.removeAttribute("data-theme");
+  else root.setAttribute("data-theme", name);
+  remember("theme", name);
+}
+
+function themeMenu() {
+  const current = recall("theme", "system");
+  return [
+    { header: "Appearance" },
+    ...Object.entries(THEMES).map(([key, label]) => ({
+      label, className: key === current ? "on" : "", run: () => applyTheme(key),
+    })),
+  ];
+}
+
 function filterMenu() {
   return Object.entries(FILTER_LABELS).map(([key, label]) => ({
     label,
@@ -770,6 +800,7 @@ function moreMenu() {
     "-",
     { label: samples ? "Delete the sample records" : "Load sample records",
       run: () => samplesAction(samples ? "clear" : "load") },
+    { label: "Appearance…", run: (event) => Menu.show($("btn-more"), themeMenu()) },
     { label: "Keyboard shortcuts", hint: "?", run: () => $("help-modal").showModal() },
   ];
 }
@@ -782,7 +813,7 @@ function commitContext(commit) {
     kind: "commit",
     where: commit.short,
     files: commit.files,
-    fetch: (path) => api(`/api/commits/${commit.sha}/patch?path=${encodeURIComponent(path)}`),
+    fetch: (path) => api(`/api/commits/${commit.sha}/patch?path=${encodeURIComponent(path)}${whitespaceFlag()}`),
   };
 }
 
@@ -800,7 +831,7 @@ function worktreeContext(staged) {
     staged,
     where: staged ? "staged" : "working tree",
     files,
-    fetch: (path) => api(`/api/filediff?path=${encodeURIComponent(path)}&staged=${staged ? 1 : 0}`),
+    fetch: (path) => api(`/api/filediff?path=${encodeURIComponent(path)}&staged=${staged ? 1 : 0}${whitespaceFlag()}`),
     hunks: (entry) => (entry && !entry.untracked ? { staged } : null),
   };
 }
@@ -834,6 +865,23 @@ function fileStatusOf(file) {
   if (file.header.some((line) => line.startsWith("deleted file"))) return "D";
   if (file.header.some((line) => line.startsWith("rename "))) return "R";
   return "M";
+}
+
+const whitespaceFlag = () => (state.diffView.space ? "&ws=1" : "");
+
+/* How the diff is read, not what it says: kept between sessions. */
+function diffViewMenu() {
+  const toggle = (key, refetch) => () => {
+    state.diffView[key] = !state.diffView[key];
+    remember(`diff.${key}`, state.diffView[key] ? "on" : "off");
+    if (refetch && state.view) openFileView(state.view.context, state.view.path);
+    else renderViewer();
+  };
+  return [
+    { header: "Reading" },
+    { label: "Wrap long lines", className: state.diffView.wrap ? "on" : "", run: toggle("wrap", false) },
+    { label: "Ignore whitespace", className: state.diffView.space ? "on" : "", run: toggle("space", true) },
+  ];
 }
 
 async function openFileView(context, path) {
@@ -941,6 +989,11 @@ function renderViewer() {
       : el("span", { class: "path" }, [el("span", { class: "name", text: `Whole patch of ${context.where}` })]),
     el("span", { class: "stats" }, fileStats(entry)),
     el("span", { class: "where", text: context.where }),
+    el("button", {
+      type: "button", class: "icon-btn", title: "How this diff is shown",
+      "aria-haspopup": "menu", "aria-label": "Diff options",
+      onclick: (event) => Menu.show(event, diffViewMenu()), text: "⋯",
+    }),
     el("span", { class: "viewer-nav" }, [
       el("button", {
         type: "button", class: "icon-btn", title: "Previous file (↑)", "aria-label": "Previous file",
@@ -958,6 +1011,7 @@ function renderViewer() {
   );
 
   const body = clear($("viewer-body"));
+  body.classList.toggle("wrap", state.diffView.wrap);
   if (loading) {
     body.append(el("p", { class: "empty-state", text: "Loading the diff…" }));
     return;
@@ -1925,6 +1979,7 @@ function bind() {
 }
 
 async function boot() {
+  applyTheme(recall("theme", "system"));
   bind();
   try {
     await refresh(false);

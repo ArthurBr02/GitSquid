@@ -202,10 +202,11 @@ class UIServer:
             "conflicted": sum(1 for entry in entries if entry.conflicted),
         }
 
-    def file_diff(self, path: str, staged: bool) -> dict:
+    def file_diff(self, path: str, staged: bool, ignore_whitespace: bool = False) -> dict:
         try:
             return {"path": path, "staged": staged,
-                    "diff": worktree.file_diff(self.settings.repo, path, staged=staged)}
+                    "diff": worktree.file_diff(self.settings.repo, path, staged=staged,
+                                               ignore_whitespace=ignore_whitespace)}
         except GitError as exc:
             raise ApiError(str(exc)) from exc
 
@@ -260,9 +261,10 @@ class UIServer:
         except ValueError as exc:
             raise ApiError(str(exc)) from exc
 
-    def commit_patch(self, sha: str, path: str) -> dict:
+    def commit_patch(self, sha: str, path: str, ignore_whitespace: bool = False) -> dict:
         try:
-            return gitlog.commit_patch(self.settings.repo, sha, path or None)
+            return gitlog.commit_patch(self.settings.repo, sha, path or None,
+                                       ignore_whitespace=ignore_whitespace)
         except ValueError as exc:
             raise ApiError(str(exc)) from exc
 
@@ -532,7 +534,8 @@ class _Handler(BaseHTTPRequestHandler):
                 self._json(HTTPStatus.OK, self.ui.repos())
             elif route == "/api/filediff":
                 self._json(HTTPStatus.OK, self.ui.file_diff(
-                    (query.get("path") or [""])[0], (query.get("staged") or ["0"])[0] == "1"))
+                    (query.get("path") or [""])[0], (query.get("staged") or ["0"])[0] == "1",
+                    (query.get("ws") or ["0"])[0] == "1"))
             elif route == "/api/search":
                 self._json(HTTPStatus.OK, self.ui.search((query.get("q") or [""])[0]))
             elif route == "/api/filehistory":
@@ -553,7 +556,8 @@ class _Handler(BaseHTTPRequestHandler):
                     self._json(HTTPStatus.OK, self.ui.commit_detail(parts[0]))
                 elif len(parts) == 2 and parts[1] == "patch":
                     self._json(HTTPStatus.OK, self.ui.commit_patch(
-                        parts[0], (query.get("path") or [""])[0]))
+                        parts[0], (query.get("path") or [""])[0],
+                        (query.get("ws") or ["0"])[0] == "1"))
                 else:
                     self._json(HTTPStatus.NOT_FOUND, {"error": "Not found."})
             else:

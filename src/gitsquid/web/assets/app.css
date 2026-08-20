@@ -21,6 +21,15 @@
   --purple: #bd8ee6;
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px;
   --radius: 7px;
+  --add-bg: rgba(87, 207, 148, .1);
+  --add-ink: #96e0bb;
+  --add-mark: rgba(87, 207, 148, .28);
+  --del-bg: rgba(244, 105, 108, .1);
+  --del-ink: #ffa8a8;
+  --del-mark: rgba(244, 105, 108, .28);
+  --hunk-bg: rgba(79, 157, 255, .1);
+  --hunk-ink: var(--accent-strong);
+  --shadow: rgba(0, 0, 0, .5);
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
 }
@@ -137,6 +146,72 @@ body {
   border-radius: 999px;
   background: var(--accent); color: var(--accent-ink);
   font: 600 10px var(--mono);
+}
+
+
+/* ---------- light ---------- */
+/* The same interface in daylight: only the tokens change, never a rule. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) { color-scheme: light; }
+  :root:not([data-theme="dark"]) {
+    --bg: #f4f6f9;
+    --bg-raised: #ffffff;
+    --bg-panel: #ffffff;
+    --bg-hover: #e9edf3;
+    --bg-active: #dde6f5;
+    --line: #d8dde5;
+    --line-soft: #e7eaf0;
+    --text: #1b2029;
+    --text-dim: #545c6e;
+    --text-faint: #7d8494;
+    --accent: #2872d8;
+    --accent-strong: #1b5fc0;
+    --accent-ink: #ffffff;
+    --teal: #0d8f88;
+    --green: #1c8f52;
+    --amber: #9c6a06;
+    --red: #cc383c;
+    --purple: #7248bd;
+    --add-bg: rgba(28, 143, 82, .1);
+    --add-ink: #10562f;
+    --add-mark: rgba(28, 143, 82, .26);
+    --del-bg: rgba(204, 56, 60, .09);
+    --del-ink: #8d1f22;
+    --del-mark: rgba(204, 56, 60, .22);
+    --hunk-bg: rgba(40, 114, 216, .1);
+    --hunk-ink: #1b5fc0;
+    --shadow: rgba(20, 28, 45, .18);
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f6f9;
+  --bg-raised: #ffffff;
+  --bg-panel: #ffffff;
+  --bg-hover: #e9edf3;
+  --bg-active: #dde6f5;
+  --line: #d8dde5;
+  --line-soft: #e7eaf0;
+  --text: #1b2029;
+  --text-dim: #545c6e;
+  --text-faint: #7d8494;
+  --accent: #2872d8;
+  --accent-strong: #1b5fc0;
+  --accent-ink: #ffffff;
+  --teal: #0d8f88;
+  --green: #1c8f52;
+  --amber: #9c6a06;
+  --red: #cc383c;
+  --purple: #7248bd;
+  --add-bg: rgba(28, 143, 82, .1);
+  --add-ink: #10562f;
+  --add-mark: rgba(28, 143, 82, .26);
+  --del-bg: rgba(204, 56, 60, .09);
+  --del-ink: #8d1f22;
+  --del-mark: rgba(204, 56, 60, .22);
+  --hunk-bg: rgba(40, 114, 216, .1);
+  --hunk-ink: #1b5fc0;
+  --shadow: rgba(20, 28, 45, .18);
 }
 
 kbd {
@@ -409,12 +484,12 @@ body.resizing { cursor: col-resize; user-select: none; }
 .diff .ln.new { border-right: 1px solid var(--line-soft); }
 /* What changed inside a rewritten line, so the eye does not diff it by hand. */
 .diff .ink { border-radius: 3px; padding: 0 1px; }
-.diff .add .ink { background: rgba(87, 207, 148, .28); }
-.diff .del .ink { background: rgba(244, 105, 108, .28); }
+.diff .add .ink { background: var(--add-mark); }
+.diff .del .ink { background: var(--del-mark); }
 .diff .tx { flex: 1 1 auto; padding: 0 12px; white-space: pre; }
-.diff .add { background: rgba(87, 207, 148, .1); color: #96e0bb; }
-.diff .del { background: rgba(244, 105, 108, .1); color: #ffa8a8; }
-.diff .hunk { background: rgba(79, 157, 255, .1); color: var(--accent-strong); }
+.diff .add { background: var(--add-bg); color: var(--add-ink); }
+.diff .del { background: var(--del-bg); color: var(--del-ink); }
+.diff .hunk { background: var(--hunk-bg); color: var(--hunk-ink); }
 .diff .meta { color: var(--text-faint); }
 .hunk-bar {
   display: flex; gap: 6px; justify-content: flex-end;
@@ -466,7 +541,7 @@ body.resizing { cursor: col-resize; user-select: none; }
   background: var(--bg-panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, .5);
+  box-shadow: 0 14px 36px var(--shadow);
 }
 .context-menu hr { border: 0; border-top: 1px solid var(--line-soft); margin: var(--s1) 4px; }
 .menu-header {
@@ -495,7 +570,7 @@ body.resizing { cursor: col-resize; user-select: none; }
   border: 1px solid var(--line); border-radius: 10px;
   background: var(--bg-panel); color: var(--text);
   padding: var(--s5);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, .6);
+  box-shadow: 0 22px 60px var(--shadow);
 }
 .modal.small { width: min(420px, 92vw); }
 .modal::backdrop { background: rgba(6, 8, 12, .7); }
@@ -555,7 +630,7 @@ body.resizing { cursor: col-resize; user-select: none; }
   min-width: 250px; max-width: 400px;
   padding: 9px 12px; border-radius: var(--radius);
   background: var(--bg-panel); border: 1px solid var(--line);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, .45);
+  box-shadow: 0 10px 28px var(--shadow);
   font-size: 12.5px;
   animation: rise .16s ease-out;
 }
@@ -652,3 +727,6 @@ body.resizing { cursor: col-resize; user-select: none; }
   padding: var(--s3);
   font: 11px var(--mono); color: var(--text-faint);
 }
+
+.viewer-body.wrap .diff .tx { white-space: pre-wrap; word-break: break-word; }
+.viewer-body.wrap .diff div { min-width: 0; }

@@ -106,11 +106,12 @@ def status(repo: Path) -> list[FileEntry]:
     return sorted(entries, key=lambda entry: entry.path)
 
 
-def file_diff(repo: Path, path: str, *, staged: bool) -> str:
+def file_diff(repo: Path, path: str, *, staged: bool, ignore_whitespace: bool = False) -> str:
     require_paths([path])
+    space = ["-w"] if ignore_whitespace else []
     if staged:
-        return run(repo, ["diff", "--cached", "--no-color", "--", path]).stdout
-    result = run(repo, ["diff", "--no-color", "--", path])
+        return run(repo, ["diff", "--cached", "--no-color", *space, "--", path]).stdout
+    result = run(repo, ["diff", "--no-color", *space, "--", path])
     if result.stdout.strip():
         return result.stdout
     if run(repo, ["ls-files", "--error-unmatch", "--", path]).returncode == 0:
