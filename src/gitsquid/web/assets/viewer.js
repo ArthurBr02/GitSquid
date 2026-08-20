@@ -323,6 +323,7 @@ function renderViewer() {
 /* ---------- diff rendering with line numbers ---------- */
 
 function parseDiff(text) {
+  if (!text || !text.trim()) return [];
   const files = [];
   let file = null;
   let hunk = null;

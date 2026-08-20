@@ -193,7 +193,7 @@ bundle, and running the wrong one tells you so immediately instead of failing in
 | `refs.py` | Tags, remote branches, and branch renaming. |
 | `history.py` | Check out a commit, branch from it, cherry-pick, revert, reset, rebase — and abort or continue what conflicts. |
 | `registry.py` | The list of known repositories, shared by every session. |
-| `web/` | Loopback HTTP server, JSON API, and the single-page interface; `assets/graph.js` lays out and paints the commit graph. |
+| `web/` | Loopback HTTP server and JSON API. The page is seven small scripts, one job each: `base` (elements, text, the API), `menu` (the context-menu component), `menus` (what each row offers), `sidebar`, `viewer` (the middle pane when it shows a file), `panels` (the right column), `actions`, and `app` (state, rows, selection, boot). `graph.js` lays out and paints the lanes. |
 | `workflow.py` | `ChangeService` — the core loop, independent of the CLI. |
 | `portability.py` | Export and import, with validation of untrusted files. |
 | `safety.py` | Redaction, path validation, input cleaning. |
