@@ -48,7 +48,6 @@ see [Degraded mode](#degraded-mode).
 
 ---
 
-
 ## The interface
 
 ![A commit, its files, and the graph behind it](docs/commit.png)

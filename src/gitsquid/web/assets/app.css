@@ -788,3 +788,5 @@ body.resizing { cursor: col-resize; user-select: none; }
   box-shadow: 0 -6px 18px var(--shadow);
 }
 .pick-bar .btn:nth-of-type(1) { margin-left: auto; }
+
+.commit-box .staged-note.warn { color: var(--amber); }

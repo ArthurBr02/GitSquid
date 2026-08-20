@@ -10,6 +10,7 @@ function renderWorktreeDetail() {
   const staged = files.filter((file) => file.staged);
   const unstaged = files.filter((file) => file.unstaged || file.untracked);
   const repo = state.data.state.repo;
+  const detached = Boolean((repo.head || {}).detached);
 
   detail.append(el("div", { class: "detail-head" }, [
     el("h2", { text: files.length ? "Uncommitted changes" : "Working tree" }),
@@ -49,14 +50,18 @@ function renderWorktreeDetail() {
       el("button", {
         type: "button", class: "btn primary", disabled: !state.amend && staged.length === 0,
         onclick: () => commitStaged(),
-        text: state.amend ? "Amend the last commit" : `Commit ${plural(staged.length, "file")}`,
+        text: state.amend
+          ? "Amend the last commit"
+          : `Commit ${plural(staged.length, "file")}${detached ? "" : ` to ${repo.branch}`}`,
       }),
       el("label", { class: "amend-toggle", for: "commit-amend",
         title: repo.head_message ? "Replace the last commit instead of adding one" : "There is no commit to amend yet" },
         [amendBox, el("span", { text: "Amend" })]),
-      el("span", { class: "staged-note",
-        text: state.amend ? "The last commit is replaced, staged files included."
-          : (staged.length ? "" : "Stage a file to enable the commit.") }),
+      el("span", { class: `staged-note${detached ? " warn" : ""}`,
+        text: detached
+          ? "No branch is checked out: this commit would be easy to lose. Create a branch first."
+          : (state.amend ? "The last commit is replaced, staged files included."
+            : (staged.length ? "" : "Stage a file to enable the commit.")) }),
     ]),
   ]));
 
