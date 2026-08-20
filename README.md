@@ -82,58 +82,54 @@ and can end at `reverted`; illegal transitions are refused by the model layer, n
 ## The interface
 
 `gitsquid ui` serves a single page at `http://127.0.0.1:8756/`. No account, no login, no token —
-it is a local tool for one person. It covers both halves of the loop — the git one and the
-assistant one:
+it is a local tool for one person. Three columns, one job each:
 
-- **Repository switcher** — the chip in the top bar lists every registered repository; open
-  another by absolute path and the whole interface follows. Each repository keeps its own
-  database, index, `.env`, and history. The one you were last on is the one that reopens next
-  time, wherever you launch from; `gitsquid ui --repo .` opens the current folder instead.
-- **Graph** — a WIP node for uncommitted work sits on top, then GitSquid changes and git commits on
-  one timeline. The lanes are laid out over the rows actually on screen and painted as one drawing,
-  so every line joins the next row; a branch keeps one colour from tip to root, merges leave one
-  curve per parent, and changes ride the lane below them as a diamond coloured by status. Filtering
-  the list drops the lanes rather than joining rows that are not adjacent in history.
-- **Uncommitted changes** — staged and unstaged files with their status codes, per-file diff with
-  line numbers, stage / unstage / discard per file or in bulk, **stage, unstage or discard one
-  hunk** from the diff itself, and a commit box with an **Amend** toggle that prefills the message
-  of `HEAD`. Committing is recorded in the audit trail alongside everything else.
-- **Change detail** — rationale, facts, diff, every test run with its output, and the audit trail.
-  Apply, Run tests, and Revert act from here, and each button disables itself when the change's
-  status makes the action impossible.
-- **Commit detail** — message, files, and the full patch.
-- **Right click** — every list has the actions you would expect from a graph client, on a right
-  click or on <kbd>Shift</kbd>+<kbd>F10</kbd>. On a commit: check it out, branch from it, tag it,
-  cherry-pick it, revert it, rebase the current branch onto it, reset the branch to it
-  (soft / mixed / hard), copy its SHA or its message. On a branch: check out, merge (or squash
-  merge), rebase onto it, branch from it, rename, push, delete, copy. On a remote branch: check out
-  as a tracking branch, fetch, delete on the remote. On a tag: check out, push, delete. On a stash:
-  apply, pop, branch from it, drop. On a file: stage, unstage, discard, ignore, file history,
-  copy path. On a recorded change: apply, run tests, revert.
-- **Branches** — local branches with the current one marked, remote-tracking branches in their own
-  panel, and tags in theirs. <kbd>+</kbd> creates a branch or a tag; everything else is one right
-  click away.
-- **Remotes** — Fetch, Pull (fast-forward only), and Push in the top bar, with ahead/behind
-  badges; a right click on Push offers a force push `--force-with-lease`. They disable themselves
-  when the repository has no remote.
-- **Stashes** — stash the working tree, then apply, pop, branch from, or drop from the sidebar.
+- **Left — what the repository holds.** Collapsible sections, remembered between sessions: the
+  working tree, local branches, remote branches, tags, stashes. Every entry is the same row, and
+  every row answers a right click — or the ⋯ that appears on hover — with what can be done to it.
+- **Middle — the graph, or one file.** A WIP node for uncommitted work sits on top, then GitSquid
+  changes and git commits on one timeline; the lanes are laid out over the rows actually on screen
+  and painted as one drawing, so a branch keeps one colour from tip to root and a merge leaves one
+  curve per parent. Click a file anywhere in the interface and the graph gives way to that file's
+  diff, full width, with <kbd>↑</kbd> <kbd>↓</kbd> to walk the other files of the same commit and
+  <kbd>Esc</kbd> to come back.
+- **Right — what is selected.** A commit shows its message, then its files with their status letter
+  and the lines each one gained and lost — never the whole patch at once, which is what makes a
+  27-file merge readable. A recorded change shows its rationale, its files, its test runs and its
+  audit trail. The working tree shows the commit box, with an **Amend** toggle, and the files
+  grouped into conflicted, staged and unstaged.
+
+The top bar holds the repository chip — every registered repository, each with its own database,
+index, `.env` and history — then Fetch, Pull, Push with their ahead/behind counts, and **New
+change**. Everything rare lives behind the **⋯** menu: re-index, export, import, sample records,
+the repository list, the shortcuts. A right click on Push offers a force push with lease. The page
+refreshes itself when you come back to the window, so what your editor did shows up without asking.
+
+**What a right click offers.** On a commit: check it out, branch from it, tag it, cherry-pick it,
+revert it, rebase the current branch onto it, reset the branch to it (soft / mixed / hard), copy
+its SHA or its message. On a branch: check out, merge or squash merge, rebase onto it, branch from
+it, rename, push, delete. On a remote branch: check out as a tracking branch, fetch, delete on the
+remote. On a tag: check out, push, delete. On a stash: apply, pop, branch from it, drop. On a file:
+stage, unstage, discard, ignore, file history, copy path. On a recorded change: apply, run tests,
+revert.
+
+- **Per-hunk staging** — a working-tree diff carries Stage, Unstage and Discard on each hunk.
 - **Interrupted operations** — when a merge, rebase, cherry-pick or revert stops on a conflict, a
-  bar names it, counts the files that still conflict, and offers **Continue** (once nothing does)
-  or **Abort**.
+  bar names it, counts the files that still conflict, and offers **Continue** (once none do) or
+  **Abort**; the conflicted files get their own group in the panel.
 - **File history** — the commits that touched one file, renames followed, from its context menu.
-- **Sidebar** — status filters with counts, the working-tree summary, index size, and the
-  sample-data controls.
 - **New change** — task plus an optional diff. Without an API key the diff becomes required, and
   the dialog says so before you submit rather than after.
 
-Both dividers are draggable, and focusable for keyboard resizing with <kbd>←</kbd><kbd>→</kbd>.
+Both dividers are draggable, keep their width between sessions, and are focusable for keyboard
+resizing with <kbd>←</kbd><kbd>→</kbd>.
 
 Keyboard: <kbd>N</kbd> new change · <kbd>W</kbd> uncommitted changes · <kbd>B</kbd> branch ·
-<kbd>T</kbd> tag · <kbd>S</kbd> stash · <kbd>I</kbd> re-index · <kbd>/</kbd> filter ·
-<kbd>↑</kbd><kbd>↓</kbd> or <kbd>j</kbd><kbd>k</kbd> move · <kbd>Enter</kbd> focus the detail ·
-<kbd>Shift</kbd>+<kbd>F10</kbd> the menu of the selected row · <kbd>Esc</kbd> leave a field or
-close a menu · <kbd>?</kbd> the full list. Nothing needs a mouse: every context menu is reachable
-from the keyboard and walks with the arrow keys.
+<kbd>T</kbd> tag · <kbd>S</kbd> stash · <kbd>R</kbd> refresh · <kbd>I</kbd> re-index ·
+<kbd>/</kbd> search · <kbd>↑</kbd><kbd>↓</kbd> or <kbd>j</kbd><kbd>k</kbd> move ·
+<kbd>Enter</kbd> focus the detail · <kbd>Shift</kbd>+<kbd>F10</kbd> the menu of the selected row ·
+<kbd>Esc</kbd> leave a field, close a menu, or leave a file · <kbd>?</kbd> the full list. Nothing
+needs a mouse: every context menu is reachable from the keyboard and walks with the arrow keys.
 
 The server binds `127.0.0.1` only and refuses any request whose `Host` header is not loopback,
 which blocks DNS rebinding from a web page you might have open. Nothing outside the machine can

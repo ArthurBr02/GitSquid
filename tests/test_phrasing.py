@@ -20,3 +20,10 @@ def test_a_noun_phrase_pluralises_on_its_last_word():
 
 def test_an_irregular_form_can_be_given():
     assert plural(2, "entry", many="entries") == "2 entries"
+
+
+def test_one_file_conflicts_and_several_conflict():
+    from gitsquid.phrasing import conflicts
+
+    assert conflicts(1) == "1 file still conflicts"
+    assert conflicts(3) == "3 files still conflict"

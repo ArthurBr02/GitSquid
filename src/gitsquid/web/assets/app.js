@@ -620,7 +620,7 @@ function renderOperation(repo) {
     el("span", { class: "op-kind", text: `${operation.kind} in progress` }),
     el("span", {
       text: blocked
-        ? `${plural(blocked, "file")} still conflict. Resolve them, stage them, then continue.`
+        ? `${plural(blocked, "file")} still ${blocked === 1 ? "conflicts" : "conflict"}. Resolve in your editor, stage, then continue.`
         : "Nothing conflicts any more — continue when you are ready.",
     }),
     operation.resumable ? el("button", {
@@ -677,6 +677,14 @@ function renderChrome() {
   state.counts = { ...counts, all: state.rows.length, commits: state.data.graph.commits.length };
 }
 
+let lastRefresh = 0;
+
+function refreshOnFocus() {
+  if (state.busy || document.hidden || Date.now() - lastRefresh < 1500) return;
+  lastRefresh = Date.now();
+  quiet(refresh());
+}
+
 function filterMenu() {
   return Object.entries(FILTER_LABELS).map(([key, label]) => ({
     label,
@@ -691,6 +699,7 @@ function moreMenu() {
   const samples = state.data.state.samples;
   return [
     { label: "Repositories…", hint: "O", run: openReposDialog },
+    { label: "Refresh", hint: "R", run: () => quiet(refresh()) },
     "-",
     { label: "Re-index this repository", hint: "I", run: reindex },
     { label: "Export the history…", run: exportHistory },
@@ -858,12 +867,15 @@ function renderViewer() {
 
   const { context, path, diff, loading, truncated, error } = state.view;
   const entry = context.files.find((file) => file.path === path) || { status: "M", path };
-  const [dir, name] = splitPath(path || "the whole patch");
+  const [dir, name] = splitPath(path);
   const at = context.files.findIndex((file) => file.path === path);
 
   clear($("viewer-head")).append(
-    el("span", { class: `code ${entry.status}`, title: STATUS_WORDS[entry.status] || "", text: entry.status }),
-    el("span", { class: "path", title: path }, [el("span", { class: "dir", text: `${dir}\u200e` }), el("span", { class: "name", text: name })]),
+    path ? el("span", { class: `code ${entry.status}`, title: STATUS_WORDS[entry.status] || "", text: entry.status }) : null,
+    path
+      ? el("span", { class: "path", title: path },
+          [el("span", { class: "dir", text: `${dir}\u200e` }), el("span", { class: "name", text: name })])
+      : el("span", { class: "path" }, [el("span", { class: "name", text: `Whole patch of ${context.where}` })]),
     el("span", { class: "stats" }, fileStats(entry)),
     el("span", { class: "where", text: context.where }),
     el("span", { class: "viewer-nav" }, [
@@ -1061,7 +1073,13 @@ function renderWorktreeDetail() {
     ]),
   ]));
 
-  for (const [label, list, isStaged] of [["Staged", staged, true], ["Unstaged", unstaged, false]]) {
+  const conflicted = files.filter((file) => file.conflicted);
+  const groups = [
+    ...(conflicted.length ? [["Conflicted", conflicted, false, true]] : []),
+    ["Staged", staged.filter((file) => !file.conflicted), true, false],
+    ["Unstaged", unstaged.filter((file) => !file.conflicted), false, false],
+  ];
+  for (const [label, list, isStaged, isConflict] of groups) {
     const context = worktreeContext(isStaged);
     const group = el("div", { class: "file-group" });
     group.append(el("div", { class: "file-group-head" }, [
@@ -1073,7 +1091,10 @@ function renderWorktreeDetail() {
         text: isStaged ? "Unstage all" : "Stage all",
       }) : null,
     ]));
-    if (!list.length) {
+    if (isConflict) {
+      group.append(el("p", { class: "tree-empty", style: "padding:2px 16px 8px",
+        text: "Resolve these in your editor, then stage them to mark them settled." }));
+    } else if (!list.length) {
       group.append(el("p", { class: "tree-empty", style: "padding:8px 16px",
         text: isStaged ? "Nothing staged yet." : "No unstaged edit." }));
     }
@@ -1081,17 +1102,17 @@ function renderWorktreeDetail() {
     for (const entry of list) {
       const row = fileListRow(context, {
         path: entry.path,
-        status: isStaged ? entry.index_code : (entry.untracked ? "A" : entry.work_code),
+        status: entry.conflicted ? "U" : (isStaged ? entry.index_code : (entry.untracked ? "A" : entry.work_code)),
         original: entry.original,
         sensitive: entry.sensitive,
         untracked: entry.untracked,
-        ...lineCounts(entry, isStaged),
+        ...(entry.conflicted ? {} : lineCounts(entry, isStaged)),
       }, [
         el("button", {
           type: "button", class: "btn tiny ghost stage-btn",
-          "aria-label": `${isStaged ? "Unstage" : "Stage"} ${entry.path}`,
+          "aria-label": `${isConflict ? "Mark resolved" : isStaged ? "Unstage" : "Stage"} ${entry.path}`,
           onclick: (event) => { event.stopPropagation(); worktreeAction(isStaged ? "unstage" : "stage", [entry.path]); },
-          text: isStaged ? "Unstage" : "Stage",
+          text: isConflict ? "Resolved" : isStaged ? "Unstage" : "Stage",
         }),
         el("button", {
           type: "button", class: "row-menu", "aria-label": `Actions for ${entry.path}`,
@@ -1274,18 +1295,6 @@ async function renderChangeDetail(id) {
     ]));
   }
 
-  const facts = el("dl", { class: "kv" });
-  for (const [label, value] of [
-    ["Files", change.files.join(", ") || "none"],
-    ["Model", change.model || "none"],
-    ["Digest", change.digest],
-    ["Base commit", (change.base_commit || "unknown").slice(0, 12)],
-    ["Applied", change.applied_at || "never"],
-    ["Tokens", change.input_tokens ? `${change.input_tokens} in / ${change.output_tokens} out` : "n/a"],
-  ]) {
-    facts.append(el("dt", { text: label }), el("dd", { text: value }));
-  }
-  detail.append(el("section", { class: "detail-section" }, [el("h3", { text: "Details" }), facts]));
   const context = changeContext(change);
   const list = el("div", { class: "file-list", role: "listbox", "aria-label": "Files in this change" });
   for (const entry of context.files) list.append(fileListRow(context, entry));
@@ -1316,6 +1325,18 @@ async function renderChangeDetail(id) {
   }
   detail.append(runs);
 
+  const facts = el("dl", { class: "kv" });
+  for (const [label, value] of [
+    ["Files", change.files.join(", ") || "none"],
+    ["Model", change.model || "none"],
+    ["Digest", change.digest],
+    ["Base commit", (change.base_commit || "unknown").slice(0, 12)],
+    ["Applied", change.applied_at || "never"],
+    ["Tokens", change.input_tokens ? `${change.input_tokens} in / ${change.output_tokens} out` : "n/a"],
+  ]) {
+    facts.append(el("dt", { text: label }), el("dd", { text: value }));
+  }
+  detail.append(el("section", { class: "detail-section" }, [el("h3", { text: "Details" }), facts]));
   const trail = el("ol", { class: "trail" });
   for (const event of change.events) {
     trail.append(el("li", {}, [
@@ -1671,6 +1692,8 @@ function bind() {
   $("repo-chip").addEventListener("click", openReposDialog);
   $("repos-close").addEventListener("click", () => $("repos-modal").close());
   $("btn-more").addEventListener("click", (event) => Menu.show(event, moreMenu()));
+  window.addEventListener("focus", refreshOnFocus);
+  document.addEventListener("visibilitychange", refreshOnFocus);
   $("btn-filter").addEventListener("click", (event) => Menu.show(event, filterMenu()));
 
   if (desktopBridge()) {
@@ -1737,6 +1760,7 @@ function bind() {
       o: openReposDialog,
       w: () => { if (state.worktree.files.length) select("wip"); },
       i: reindex,
+      r: () => quiet(refresh()),
       b: createBranch,
       t: createTag,
       s: stashWorkingTree,
