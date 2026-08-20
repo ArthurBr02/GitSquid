@@ -53,19 +53,14 @@ function section(key, { title, count, action, rows, empty }) {
   return node;
 }
 
-function renderSidebar() {
-  const { repo } = state.data.state;
-  const sidebar = clear($("sidebar"));
-  const files = state.worktree.files;
-  const hasRemote = (repo.remotes || []).length > 0;
-
-  sidebar.append(section("worktree", {
+function worktreeSection(files) {
+  return section("worktree", {
     title: "Working tree",
+    empty: "",
     rows: [treeRow({
       id: "wip-row",
       label: files.length ? "Uncommitted changes" : "Clean",
       icon: "◆",
-      className: files.length ? "" : "quiet",
       current: state.selected === "wip",
       sub: files.length
         ? [el("span", { class: state.worktree.staged ? "on" : "", text: `${state.worktree.staged} staged` }),
@@ -74,10 +69,11 @@ function renderSidebar() {
       onclick: () => select("wip"),
       menu: files.length ? wipMenu : null,
     })],
-    empty: "",
-  }));
+  });
+}
 
-  sidebar.append(section("branches", {
+function branchesSection(repo) {
+  return section("branches", {
     title: "Branches",
     count: repo.branches.length,
     action: { label: "+", title: "Create a branch", run: createBranch },
@@ -98,18 +94,19 @@ function renderSidebar() {
         menu: () => branchMenu(branch, isCurrent),
       });
     }),
-  }));
+  });
+}
 
+function remotesSection(repo) {
   const remote = repo.remote_branches || [];
-  sidebar.append(section("remotes", {
+  const hasRemote = (repo.remotes || []).length > 0;
+  return section("remotes", {
     title: "Remote branches",
     count: remote.length,
     action: {
       label: hasRemote ? "⟳" : "+",
       title: hasRemote ? "Fetch, or manage the remotes" : "Add a remote",
-      run: hasRemote
-        ? (event) => Menu.show(event || $("sidebar"), remotesMenu(repo))
-        : addRemote,
+      run: hasRemote ? (event) => Menu.show(event || $("sidebar"), remotesMenu(repo)) : addRemote,
     },
     empty: hasRemote ? "Nothing fetched yet." : "No remote yet — add one to push.",
     rows: remote.map((entry) => treeRow({
@@ -119,10 +116,12 @@ function renderSidebar() {
       onclick: () => worktreeAction("checkout-remote", null, { branch: entry.name }),
       menu: () => remoteBranchMenu(entry),
     })),
-  }));
+  });
+}
 
+function tagsSection(repo) {
   const tags = repo.tags || [];
-  sidebar.append(section("tags", {
+  return section("tags", {
     title: "Tags",
     count: tags.length,
     action: { label: "+", title: "Tag the current commit", run: createTag },
@@ -134,10 +133,12 @@ function renderSidebar() {
       onclick: () => openCommit(tag.sha),
       menu: () => tagMenu(tag),
     })),
-  }));
+  });
+}
 
+function stashesSection(repo) {
   const stashes = repo.stashes || [];
-  sidebar.append(section("stashes", {
+  return section("stashes", {
     title: "Stashes",
     count: stashes.length,
     action: { label: "⤓", title: "Stash the working tree", run: stashWorkingTree },
@@ -149,8 +150,18 @@ function renderSidebar() {
       onclick: () => { if (stash.sha) openCommit(stash.sha); },
       menu: () => stashMenu(stash),
     })),
-  }));
+  });
+}
 
+function renderSidebar() {
+  const { repo } = state.data.state;
+  fill(clear($("sidebar")),
+    worktreeSection(state.worktree.files),
+    branchesSection(repo),
+    remotesSection(repo),
+    tagsSection(repo),
+    stashesSection(repo),
+  );
   renderChrome();
   renderOperation(repo);
 }

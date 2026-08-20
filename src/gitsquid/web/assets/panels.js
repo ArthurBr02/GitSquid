@@ -1,23 +1,7 @@
 "use strict";
 
-function renderWorktreeDetail() {
-  const detail = clear($("detail"));
-  const files = state.worktree.files;
-  const staged = files.filter((file) => file.staged);
-  const unstaged = files.filter((file) => file.unstaged || file.untracked);
-  const repo = state.data.state.repo;
+function commitBox(repo, staged) {
   const detached = Boolean((repo.head || {}).detached);
-
-  detail.append(el("div", { class: "detail-head" }, [
-    el("h2", { text: files.length ? "Uncommitted changes" : "Working tree" }),
-    el("div", { class: "detail-sub" }, [
-      el("span", { text: files.length ? plural(files.length, "file") : "clean — nothing to commit" }),
-      el("span", { text: `${staged.length} staged` }),
-      el("span", { text: `${unstaged.length} unstaged` }),
-      state.worktree.conflicted ? el("span", { class: "tag failed", text: "conflicts" }) : null,
-    ]),
-  ]));
-
   const message = el("textarea", {
     id: "commit-message", rows: "3", maxlength: "4000",
     placeholder: "Commit message — describe what this commit does",
@@ -40,15 +24,15 @@ function renderWorktreeDetail() {
     },
   });
 
-  detail.append(el("div", { class: "commit-box" }, [
+  return el("div", { class: "commit-box" }, [
     message,
     el("div", { class: "row-actions" }, [
       el("button", {
-        type: "button", class: "btn primary", disabled: !state.amend && staged.length === 0,
+        type: "button", class: "btn primary", disabled: !state.amend && staged === 0,
         onclick: () => commitStaged(),
         text: state.amend
           ? "Amend the last commit"
-          : `Commit ${plural(staged.length, "file")}${detached ? "" : ` to ${repo.branch}`}`,
+          : `Commit ${plural(staged, "file")}${detached ? "" : ` to ${repo.branch}`}`,
       }),
       el("label", { class: "amend-toggle", for: "commit-amend",
         title: repo.head_message ? "Replace the last commit instead of adding one" : "There is no commit to amend yet" },
@@ -57,62 +41,81 @@ function renderWorktreeDetail() {
         text: detached
           ? "No branch is checked out: this commit would be easy to lose. Create a branch first."
           : (state.amend ? "The last commit is replaced, staged files included."
-            : (staged.length ? "" : "Stage a file to enable the commit.")) }),
+            : (staged ? "" : "Stage a file to enable the commit.")) }),
     ]),
-  ]));
+  ]);
+}
 
-  const conflicted = files.filter((file) => file.conflicted);
-  const groups = [
-    ...(conflicted.length ? [["Conflicted", conflicted, false, true]] : []),
-    ["Staged", staged.filter((file) => !file.conflicted), true, false],
-    ["Unstaged", unstaged.filter((file) => !file.conflicted), false, false],
-  ];
-  for (const [label, list, isStaged, isConflict] of groups) {
-    const context = worktreeContext(isStaged);
-    const group = el("div", { class: "file-group" });
-    group.append(el("div", { class: "file-group-head" }, [
+function fileGroup({ label, files, staged, conflicted }) {
+  const context = worktreeContext(staged);
+  const group = el("div", { class: "file-group" }, [
+    el("div", { class: "file-group-head" }, [
       el("span", { text: label }),
-      el("span", { class: "count", text: String(list.length) }),
-      list.length ? el("button", {
+      el("span", { class: "count", text: String(files.length) }),
+      files.length ? el("button", {
         type: "button", class: "btn tiny ghost",
-        onclick: () => worktreeAction(isStaged ? "unstage" : "stage", list.map((file) => file.path)),
-        text: isStaged ? "Unstage all" : "Stage all",
+        onclick: () => worktreeAction(staged ? "unstage" : "stage", files.map((file) => file.path)),
+        text: conflicted ? "Mark all resolved" : staged ? "Unstage all" : "Stage all",
       }) : null,
-    ]));
-    if (isConflict) {
-      group.append(el("p", { class: "tree-empty", style: "padding:2px 16px 8px",
-        text: "Resolve these in your editor, then stage them to mark them settled." }));
-    } else if (!list.length) {
-      group.append(el("p", { class: "tree-empty", style: "padding:8px 16px",
-        text: isStaged ? "Nothing staged yet." : "No unstaged edit." }));
-    }
-    const shaped = list.map((entry) => ({
-      path: entry.path,
-      status: entry.conflicted ? "U" : (isStaged ? entry.index_code : (entry.untracked ? "A" : entry.work_code)),
-      original: entry.original,
-      sensitive: entry.sensitive,
-      untracked: entry.untracked,
-      source: entry,
-      ...(entry.conflicted ? {} : lineCounts(entry, isStaged)),
-    }));
-    const listBox = renderFileList(context, shaped, `${label} files`, (entry) => ({
-      extras: [
-        el("button", {
-          type: "button", class: "btn tiny ghost stage-btn",
-          "aria-label": `${isConflict ? "Mark resolved" : isStaged ? "Unstage" : "Stage"} ${entry.path}`,
-          onclick: (event) => { event.stopPropagation(); worktreeAction(isStaged ? "unstage" : "stage", [entry.path]); },
-          text: isConflict ? "Resolved" : isStaged ? "Unstage" : "Stage",
-        }),
-        el("button", {
-          type: "button", class: "row-menu", "aria-label": `Actions for ${entry.path}`,
-          onclick: (event) => { event.stopPropagation(); Menu.show(event, fileMenu(entry.source, isStaged)); },
-        }, ["⋯"]),
-      ],
-      menu: () => fileMenu(entry.source, isStaged),
-    }));
-    group.append(listBox);
-    detail.append(group);
-  }
+    ]),
+    conflicted
+      ? el("p", { class: "tree-empty", style: "padding:2px 16px 8px",
+          text: "Resolve these in your editor, then stage them to mark them settled." })
+      : (files.length ? null : el("p", { class: "tree-empty", style: "padding:8px 16px",
+          text: staged ? "Nothing staged yet." : "No unstaged edit." })),
+  ]);
+
+  const shaped = files.map((entry) => ({
+    path: entry.path,
+    status: entry.conflicted ? "U" : (staged ? entry.index_code : (entry.untracked ? "A" : entry.work_code)),
+    original: entry.original,
+    sensitive: entry.sensitive,
+    untracked: entry.untracked,
+    source: entry,
+    ...(entry.conflicted ? {} : lineCounts(entry, staged)),
+  }));
+  group.append(renderFileList(context, shaped, `${label} files`, (entry) => ({
+    extras: [
+      el("button", {
+        type: "button", class: "btn tiny ghost stage-btn",
+        "aria-label": `${conflicted ? "Mark resolved" : staged ? "Unstage" : "Stage"} ${entry.path}`,
+        onclick: (event) => { event.stopPropagation(); worktreeAction(staged ? "unstage" : "stage", [entry.path]); },
+        text: conflicted ? "Resolved" : staged ? "Unstage" : "Stage",
+      }),
+      el("button", {
+        type: "button", class: "row-menu", "aria-label": `Actions for ${entry.path}`,
+        onclick: (event) => { event.stopPropagation(); Menu.show(event, fileMenu(entry.source, staged)); },
+      }, ["⋯"]),
+    ],
+    menu: () => fileMenu(entry.source, staged),
+  })));
+  return group;
+}
+
+function renderWorktreeDetail() {
+  const files = state.worktree.files;
+  const repo = state.data.state.repo;
+  const staged = files.filter((file) => file.staged && !file.conflicted);
+  const unstaged = files.filter((file) => (file.unstaged || file.untracked) && !file.conflicted);
+  const conflicted = files.filter((file) => file.conflicted);
+
+  fill(clear($("detail")),
+    el("div", { class: "detail-head" }, [
+      el("h2", { text: files.length ? "Uncommitted changes" : "Working tree" }),
+      el("div", { class: "detail-sub" }, [
+        el("span", { text: files.length ? plural(files.length, "file") : "clean — nothing to commit" }),
+        el("span", { text: `${staged.length} staged` }),
+        el("span", { text: `${unstaged.length} unstaged` }),
+        conflicted.length ? el("span", { class: "tag failed", text: "conflicts" }) : null,
+      ]),
+    ]),
+    commitBox(repo, staged.length),
+    conflicted.length
+      ? fileGroup({ label: "Conflicted", files: conflicted, staged: false, conflicted: true })
+      : null,
+    fileGroup({ label: "Staged", files: staged, staged: true, conflicted: false }),
+    fileGroup({ label: "Unstaged", files: unstaged, staged: false, conflicted: false }),
+  );
 }
 
 async function openFileHistory(path) {
@@ -186,71 +189,66 @@ function newestRender() {
   return state.render;
 }
 
-async function renderChangeDetail(id) {
-  const token = newestRender();
-  const detail = clear($("detail"));
-  detail.append(el("div", { class: "empty-state" }, [el("p", { text: "Loading change…" })]));
-  const change = await api(`/api/changes/${id}`);
-  if (token !== state.render) return;
-  clear(detail);
-
-  const head = el("div", { class: "detail-head" }, [el("h2", { text: change.task })]);
-  head.append(el("div", { class: "detail-sub" }, [
-    el("span", { class: `tag ${change.status}`, text: change.status }),
-    el("span", { text: `#${change.id}` }),
-    el("span", { text: change.source }),
-    el("span", { text: `+${change.added} / -${change.removed}` }),
-    el("span", { class: "relative", text: relativeTime(change.created_at) }),
-    change.is_sample ? el("span", { class: "tag sample", text: "sample" }) : null,
-  ]));
-
+function changeHead(change) {
   const applicable = ["proposed", "failed"].includes(change.status);
   const testable = ["applied", "verified", "failed"].includes(change.status);
-  head.append(el("div", { class: "detail-actions" }, [
-    actionButton("Apply", "primary", () => changeAction(id, "apply"),
-      change.is_sample || !applicable || !change.applies_cleanly),
-    actionButton("Run tests", "ghost", () => changeAction(id, "test"), !testable),
-    actionButton("Revert", "danger", () => {
-      if (confirm(`Reverse change #${id} in the working tree?`)) changeAction(id, "revert");
-    }, change.is_sample || !testable),
-  ]));
-  detail.append(head);
+  return el("div", { class: "detail-head" }, [
+    el("h2", { text: change.task }),
+    el("div", { class: "detail-sub" }, [
+      el("span", { class: `tag ${change.status}`, text: change.status }),
+      el("span", { text: `#${change.id}` }),
+      el("span", { text: change.source }),
+      el("span", { text: `+${change.added} / -${change.removed}` }),
+      el("span", { class: "relative", text: relativeTime(change.created_at) }),
+      change.is_sample ? el("span", { class: "tag sample", text: "sample" }) : null,
+    ]),
+    el("div", { class: "detail-actions" }, [
+      actionButton("Apply", "primary", () => changeAction(change.id, "apply"),
+        change.is_sample || !applicable || !change.applies_cleanly),
+      actionButton("Run tests", "ghost", () => changeAction(change.id, "test"), !testable),
+      actionButton("Revert", "danger", () => {
+        if (confirm(`Reverse change #${change.id} in the working tree?`)) changeAction(change.id, "revert");
+      }, change.is_sample || !testable),
+    ]),
+  ]);
+}
 
+function changeBanner(change) {
   if (change.is_sample) {
-    detail.append(el("div", { class: "detail-section" }, [
+    return el("div", { class: "detail-section" }, [
       el("p", { class: "banner warn", text: "Sample record. It describes a fictional billing module, is never applied, and is deleted by “Clear samples”." }),
-    ]));
-  } else if (!change.applies_cleanly && change.status === "proposed") {
-    detail.append(el("div", { class: "detail-section" }, [
+    ]);
+  }
+  if (!change.applies_cleanly && change.status === "proposed") {
+    return el("div", { class: "detail-section" }, [
       el("p", { class: "banner bad", text: `git refuses this patch: ${change.check_message}` }),
-    ]));
+    ]);
   }
+  return null;
+}
 
-  if (change.rationale) {
-    detail.append(el("section", { class: "detail-section" }, [
-      el("h3", { text: "Rationale" }), el("p", { class: "prose", text: change.rationale }),
-    ]));
-  }
-
-  const context = changeContext(change);
-  const list = renderFileList(context, context.files, "Files in this change");
-  detail.append(el("section", { class: "detail-section files-section" }, [
+function filesSection(context, label, added, removed, empty) {
+  return el("section", { class: "detail-section files-section" }, [
     el("h3", {}, [
-      `Files (${context.files.length})`,
+      `${label} (${context.files.length})`,
       el("span", { class: "totals" }, [
-        el("span", { class: "stat-add", text: `+${change.added}` }),
-        el("span", { class: "stat-del", text: `−${change.removed}` }),
+        el("span", { class: "stat-add", text: `+${added}` }),
+        el("span", { class: "stat-del", text: `−${removed}` }),
       ]),
     ]),
-    context.files.length ? list : el("p", { class: "prose", text: "This patch touches no file." }),
-  ]));
+    context.files.length
+      ? renderFileList(context, context.files, `${label} in this ${context.kind}`)
+      : el("p", { class: "prose", text: empty }),
+  ]);
+}
 
-  const runs = el("section", { class: "detail-section" }, [el("h3", { text: "Test runs" })]);
-  if (!change.test_runs.length) {
-    runs.append(el("p", { class: "prose", text: "Not verified yet. Apply the change, then run the tests." }));
+function testRunsSection(runs) {
+  const section = el("section", { class: "detail-section" }, [el("h3", { text: "Test runs" })]);
+  if (!runs.length) {
+    section.append(el("p", { class: "prose", text: "Not verified yet. Apply the change, then run the tests." }));
   }
-  for (const run of change.test_runs) {
-    runs.append(el("div", { class: `run ${run.passed ? "pass" : "fail"}` }, [
+  for (const run of runs) {
+    section.append(el("div", { class: `run ${run.passed ? "pass" : "fail"}` }, [
       el("div", { class: "run-head" }, [
         el("span", { text: run.passed ? "passed" : `failed (exit ${run.exit_code})` }),
         el("span", { text: run.command }),
@@ -259,8 +257,10 @@ async function renderChangeDetail(id) {
       el("pre", { text: run.output || "(no output)" }),
     ]));
   }
-  detail.append(runs);
+  return section;
+}
 
+function factsSection(change) {
   const facts = el("dl", { class: "kv" });
   for (const [label, value] of [
     ["Files", change.files.join(", ") || "none"],
@@ -272,29 +272,45 @@ async function renderChangeDetail(id) {
   ]) {
     facts.append(el("dt", { text: label }), el("dd", { text: value }));
   }
-  detail.append(el("section", { class: "detail-section" }, [el("h3", { text: "Details" }), facts]));
+  return el("section", { class: "detail-section" }, [el("h3", { text: "Details" }), facts]);
+}
+
+function trailSection(events) {
   const trail = el("ol", { class: "trail" });
-  for (const event of change.events) {
+  for (const event of events) {
     trail.append(el("li", {}, [
       el("span", { text: event.created_at }),
       el("span", { class: "kind", text: event.kind }),
       el("span", { text: event.message }),
     ]));
   }
-  detail.append(el("section", { class: "detail-section" }, [el("h3", { text: "Audit trail" }), trail]));
+  return el("section", { class: "detail-section" }, [el("h3", { text: "Audit trail" }), trail]);
 }
 
-async function renderCommitDetail(sha) {
+async function renderChangeDetail(id) {
   const token = newestRender();
   const detail = clear($("detail"));
-  detail.append(el("div", { class: "empty-state" }, [el("p", { text: "Loading the commit…" })]));
-  const commit = await api(`/api/commits/${sha}`);
+  detail.append(el("div", { class: "empty-state" }, [el("p", { text: "Loading change…" })]));
+  const change = await api(`/api/changes/${id}`);
   if (token !== state.render) return;
-  const context = commitContext(commit);
-  const menu = () => commitMenu({ ...commit, kind: "commit" });
-  clear(detail);
 
-  const head = el("div", { class: "detail-head" }, [
+  const context = changeContext(change);
+  fill(clear(detail),
+    changeHead(change),
+    changeBanner(change),
+    change.rationale
+      ? el("section", { class: "detail-section" }, [
+          el("h3", { text: "Rationale" }), el("p", { class: "prose", text: change.rationale })])
+      : null,
+    filesSection(context, "Files", change.added, change.removed, "This patch touches no file."),
+    testRunsSection(change.test_runs),
+    factsSection(change),
+    trailSection(change.events),
+  );
+}
+
+function commitHead(commit, menu, context) {
+  return Menu.attach(el("div", { class: "detail-head" }, [
     el("h2", { text: commit.subject || "(no message)" }),
     el("div", { class: "detail-sub" }, [
       el("button", {
@@ -320,25 +336,23 @@ async function renderCommitDetail(sha) {
         onclick: () => openFileView({ ...context, files: [] }, ""), text: "Whole patch",
       }),
     ]),
-  ]);
-  detail.append(Menu.attach(head, menu));
+  ]), menu);
+}
 
-  const extra = commit.body.split("\n").slice(1).join("\n").trim();
-  if (extra) {
-    detail.append(el("section", { class: "detail-section" }, [
-      el("p", { class: "prose message-body", text: extra }),
-    ]));
-  }
+async function renderCommitDetail(sha) {
+  const token = newestRender();
+  const detail = clear($("detail"));
+  detail.append(el("div", { class: "empty-state" }, [el("p", { text: "Loading the commit…" })]));
+  const commit = await api(`/api/commits/${sha}`);
+  if (token !== state.render) return;
 
-  const list = renderFileList(context, commit.files, "Files in this commit");
-  detail.append(el("section", { class: "detail-section files-section" }, [
-    el("h3", {}, [
-      `Files (${commit.files.length})`,
-      el("span", { class: "totals" }, [
-        el("span", { class: "stat-add", text: `+${commit.added}` }),
-        el("span", { class: "stat-del", text: `−${commit.removed}` }),
-      ]),
-    ]),
-    commit.files.length ? list : el("p", { class: "prose", text: "No file changed." }),
-  ]));
+  const context = commitContext(commit);
+  const body = commit.body.split("\n").slice(1).join("\n").trim();
+  fill(clear(detail),
+    commitHead(commit, () => commitMenu({ ...commit, kind: "commit" }), context),
+    body
+      ? el("section", { class: "detail-section" }, [el("p", { class: "prose message-body", text: body })])
+      : null,
+    filesSection(context, "Files", commit.added, commit.removed, "No file changed."),
+  );
 }

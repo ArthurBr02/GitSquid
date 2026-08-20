@@ -67,6 +67,86 @@ function matches(row) {
   return haystack.toLowerCase().includes(state.query);
 }
 
+function rowContent(row) {
+  const main = el("div", { class: "row-main" });
+  const side = el("div", { class: "row-side" });
+
+  if (row.kind === "wip") {
+    fill(main,
+      el("span", { class: "row-title", text: "Uncommitted changes" }),
+      el("span", { class: "tag applied", text: "WIP" }));
+    side.append(el("span", { text: plural(state.worktree.files.length, "file") }));
+  } else if (row.kind === "change") {
+    fill(main,
+      el("span", { class: `tag ${row.status}`, text: row.status }),
+      el("span", { class: "row-title", text: row.task }),
+      row.is_sample ? el("span", { class: "tag sample", text: "sample" }) : null);
+    side.append(el("span", { text: `#${row.id}` }), el("span", { text: plural(row.files.length, "file") }));
+  } else {
+    main.append(el("span", { class: "row-title", text: row.subject || "(no message)" }));
+    // Beyond two refs the subject loses more room than the badges are worth.
+    for (const ref of row.refs.slice(0, 2)) {
+      main.append(el("span", { class: "tag ref", title: ref, text: ref }));
+    }
+    if (row.refs.length > 2) {
+      main.append(el("span", {
+        class: "tag more", title: row.refs.join(", "), text: `+${row.refs.length - 2}`,
+      }));
+    }
+    side.append(
+      el("span", { class: "who", title: row.author, text: row.author }),
+      el("span", { class: "sha", text: row.short }),
+    );
+  }
+
+  side.append(
+    el("span", { class: "relative when", title: new Date(row.when).toLocaleString(), text: relativeTime(row.when) }),
+    el("button", {
+      type: "button", class: "row-menu", "aria-label": "Actions for this row",
+      onclick: (event) => { event.stopPropagation(); select(row.key); Menu.show(event, rowMenu(row)); },
+    }, ["⋯"]),
+  );
+  return [main, side];
+}
+
+function rowElement(row) {
+  return el("li", {
+    class: `row${row.kind === "wip" ? " wip" : ""}`,
+    role: "option",
+    id: `row-${row.key}`,
+    "aria-selected": state.selected === row.key ? "true" : "false",
+    onclick: () => select(row.key),
+    oncontextmenu: (event) => { event.preventDefault(); select(row.key); Menu.show(event, rowMenu(row)); },
+  }, rowContent(row));
+}
+
+function depthBar() {
+  const more = clear($("rows-more"));
+  const { commits, total_commits: total } = state.data.graph;
+  const deeper = total > commits.length && !state.query && state.filter === "all";
+  more.hidden = !deeper;
+  if (!deeper) return;
+  more.append(
+    el("span", { text: `${commits.length} of ${plural(total, "commit")} loaded` }),
+    el("button", {
+      type: "button", class: "btn tiny ghost",
+      onclick: () => { state.limit = Math.min(state.limit + 200, 5000); quiet(refresh()); },
+      text: `Load ${Math.min(200, total - commits.length)} more`,
+    }),
+  );
+}
+
+function emptyNote(visible) {
+  const note = $("graph-empty");
+  note.hidden = visible.length > 0;
+  if (visible.length) return;
+  note.textContent = state.search
+    ? `No commit in this repository mentions “${state.search.query}”.`
+    : (state.rows.length
+      ? `Nothing matches ${state.query ? `“${state.query}”` : `the ${FILTER_LABELS[state.filter].toLowerCase()} filter`}.`
+      : "No commit and no recorded change yet. Commit something, or use “New change” to propose your first diff.");
+}
+
 function renderRows() {
   const wrap = $("rows-wrap");
   const list = clear($("rows"));
@@ -74,97 +154,19 @@ function renderRows() {
   // A filtered list has holes in it, so the lanes would join rows that are not adjacent.
   const flat = Boolean(state.query) || (state.filter !== "all" && state.filter !== "commits");
   const laid = Graph.layout(visible, { flat });
-  const budget = Math.min(Math.round((wrap.clientWidth || 700) / 3), 280);
-  const { gap, width } = Graph.measure(laid.columns, budget);
+  const { gap, width } = Graph.measure(laid.columns, Math.min(Math.round((wrap.clientWidth || 700) / 3), 280));
 
   wrap.style.setProperty("--lane-width", `${width}px`);
+  list.setAttribute("aria-activedescendant", state.selected ? `row-${state.selected}` : "");
   $("row-count").textContent = state.search
     ? `${plural(visible.length, "result")} for “${state.search.query}”`
     : (visible.length === state.rows.length
       ? plural(visible.length, "row")
       : `${visible.length} of ${state.rows.length}`);
-  list.setAttribute("aria-activedescendant", state.selected ? `row-${state.selected}` : "");
 
-  const emptyNote = $("graph-empty");
-  emptyNote.hidden = visible.length > 0;
-  if (!visible.length) {
-    emptyNote.textContent = state.search
-      ? `No commit in this repository mentions “${state.search.query}”.`
-      : (state.rows.length
-        ? `Nothing matches ${state.query ? `“${state.query}”` : `the ${FILTER_LABELS[state.filter].toLowerCase()} filter`}.`
-        : "No commit and no recorded change yet. Commit something, or use “New change” to propose your first diff.");
-  }
-
-  for (const row of visible) {
-    const item = el("li", {
-      class: `row${row.kind === "wip" ? " wip" : ""}`,
-      role: "option",
-      id: `row-${row.key}`,
-      "aria-selected": state.selected === row.key ? "true" : "false",
-      onclick: () => select(row.key),
-      oncontextmenu: (event) => { event.preventDefault(); select(row.key); Menu.show(event, rowMenu(row)); },
-    });
-
-    const main = el("div", { class: "row-main" });
-    const side = el("div", { class: "row-side" });
-
-    if (row.kind === "wip") {
-      main.append(
-        el("span", { class: "row-title", text: "Uncommitted changes" }),
-        el("span", { class: "tag applied", text: "WIP" }),
-      );
-      side.append(el("span", { text: plural(state.worktree.files.length, "file") }));
-    } else if (row.kind === "change") {
-      fill(main,
-        el("span", { class: `tag ${row.status}`, text: row.status }),
-        el("span", { class: "row-title", text: row.task }),
-        row.is_sample ? el("span", { class: "tag sample", text: "sample" }) : null,
-      );
-      side.append(el("span", { text: `#${row.id}` }), el("span", { text: plural(row.files.length, "file") }));
-    } else {
-      main.append(el("span", { class: "row-title", text: row.subject || "(no message)" }));
-      // Beyond two refs the subject loses more room than the badges are worth.
-      for (const ref of row.refs.slice(0, 2)) {
-        main.append(el("span", { class: "tag ref", title: ref, text: ref }));
-      }
-      if (row.refs.length > 2) {
-        main.append(el("span", {
-          class: "tag more", title: row.refs.join(", "), text: `+${row.refs.length - 2}`,
-        }));
-      }
-      side.append(
-        el("span", { class: "who", title: row.author, text: row.author }),
-        el("span", { class: "sha", text: row.short }),
-      );
-    }
-    side.append(
-      el("span", { class: "relative when", title: new Date(row.when).toLocaleString(), text: relativeTime(row.when) }),
-      el("button", {
-        type: "button", class: "row-menu", "aria-label": "Actions for this row",
-        onclick: (event) => { event.stopPropagation(); select(row.key); Menu.show(event, rowMenu(row)); },
-      }, ["⋯"]),
-    );
-    item.append(main, side);
-    list.append(item);
-  }
-
-  const more = clear($("rows-more"));
-  const { commits, total_commits: total } = state.data.graph;
-  const deeper = total > commits.length && !state.query && state.filter === "all";
-  more.hidden = !deeper;
-  if (deeper) {
-    more.append(
-      el("span", { text: `${commits.length} of ${plural(total, "commit")} loaded` }),
-      el("button", {
-        type: "button", class: "btn tiny ghost",
-        onclick: () => {
-          state.limit = Math.min(state.limit + 200, 5000);
-          quiet(refresh());
-        },
-        text: `Load ${Math.min(200, total - commits.length)} more`,
-      }),
-    );
-  }
+  emptyNote(visible);
+  for (const row of visible) list.append(rowElement(row));
+  depthBar();
 
   state.painting = { laid, gap, width };
   paintGraph();
@@ -475,35 +477,33 @@ function setupResizer(handleId, variable, { min, max, invert = false }) {
   });
 }
 
-function bind() {
-  $("btn-propose").addEventListener("click", openPropose);
+function bindDialogs() {
   $("propose-form").addEventListener("submit", submitPropose);
   $("propose-cancel").addEventListener("click", () => $("propose-modal").close());
   $("import-form").addEventListener("submit", submitImport);
   $("import-cancel").addEventListener("click", () => $("import-modal").close());
   $("ask-cancel").addEventListener("click", () => $("ask-modal").close());
   $("help-close").addEventListener("click", () => $("help-modal").close());
-  $("repo-chip").addEventListener("click", (event) => Menu.show(event, repoMenu()));
   $("repos-close").addEventListener("click", () => $("repos-modal").close());
-  $("btn-more").addEventListener("click", (event) => Menu.show(event, moreMenu()));
-  window.addEventListener("focus", refreshOnFocus);
-  document.addEventListener("visibilitychange", refreshOnFocus);
-  $("btn-filter").addEventListener("click", (event) => Menu.show(event, filterMenu()));
-
-  if (desktopBridge()) {
-    const browse = $("btn-browse");
-    browse.hidden = false;
-    browse.addEventListener("click", browseForRepository);
-    $("repo-path-hint").textContent = "browse or paste a path";
-    $("repo-path").required = false;
-  }
   $("repo-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const path = $("repo-path").value.trim();
     if (!path) return showFormError($("repo-error"), "An absolute path is required.");
     return openRepo(path);
   });
+  if (!desktopBridge()) return;
+  const browse = $("btn-browse");
+  browse.hidden = false;
+  browse.addEventListener("click", browseForRepository);
+  $("repo-path-hint").textContent = "browse or paste a path";
+  $("repo-path").required = false;
+}
 
+function bindToolbar() {
+  $("btn-propose").addEventListener("click", openPropose);
+  $("repo-chip").addEventListener("click", (event) => Menu.show(event, repoMenu()));
+  $("btn-more").addEventListener("click", (event) => Menu.show(event, moreMenu()));
+  $("btn-filter").addEventListener("click", (event) => Menu.show(event, filterMenu()));
   for (const [id, action] of [["btn-fetch", "fetch"], ["btn-pull", "pull"], ["btn-push", "push"]]) {
     $(id).addEventListener("click", () => worktreeAction(action, null));
   }
@@ -516,7 +516,9 @@ function bind() {
         }
       } },
   ]);
+}
 
+function bindSearch() {
   $("search").addEventListener("input", (event) => {
     if (state.search) return;  // typing again refines nothing until you leave the results
     state.query = event.target.value.trim().toLowerCase();
@@ -527,18 +529,9 @@ function bind() {
     if (event.key === "Escape" && state.search) { event.preventDefault(); leaveSearch(); }
   });
   $("btn-leave-search").addEventListener("click", leaveSearch);
+}
 
-  let paneWidth = 0;
-  new ResizeObserver(([entry]) => {
-    const width = Math.round(entry.contentRect.width);
-    if (width === paneWidth || !state.data) return;
-    paneWidth = width;
-    renderRows();
-  }).observe($("rows-wrap"));
-
-  setupResizer("resize-left", "--sidebar-w", { min: 180, max: () => 420 });
-  setupResizer("resize-right", "--detail-w", { min: 320, max: () => window.innerWidth - 520, invert: true });
-
+function bindKeyboard() {
   document.addEventListener("keydown", (event) => {
     const typing = ["INPUT", "TEXTAREA"].includes(event.target.tagName);
     if (event.key === "Escape" && typing) event.target.blur();
@@ -575,6 +568,26 @@ function bind() {
     const action = actions[event.key] || actions[event.key.toLowerCase?.()];
     if (action) { event.preventDefault(); action(); }
   });
+}
+
+function bind() {
+  bindDialogs();
+  bindToolbar();
+  bindSearch();
+  bindKeyboard();
+  window.addEventListener("focus", refreshOnFocus);
+  document.addEventListener("visibilitychange", refreshOnFocus);
+
+  let paneWidth = 0;
+  new ResizeObserver(([entry]) => {
+    const width = Math.round(entry.contentRect.width);
+    if (width === paneWidth || !state.data) return;
+    paneWidth = width;
+    renderRows();
+  }).observe($("rows-wrap"));
+
+  setupResizer("resize-left", "--sidebar-w", { min: 180, max: () => 420 });
+  setupResizer("resize-right", "--detail-w", { min: 320, max: () => window.innerWidth - 520, invert: true });
 }
 
 async function boot() {
