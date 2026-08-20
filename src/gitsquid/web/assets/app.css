@@ -641,3 +641,9 @@ body.resizing { cursor: col-resize; user-select: none; }
 .file-row .path .name, .viewer-head .path .name { flex: 0 0 auto; color: var(--text); font-weight: 500; }
 .file-row .path .name { color: var(--text-dim); }
 .file-row[aria-current="true"] .path .name { color: var(--text); }
+
+.rows-more {
+  display: flex; align-items: center; justify-content: center; gap: var(--s3);
+  padding: var(--s3);
+  font: 11px var(--mono); color: var(--text-faint);
+}

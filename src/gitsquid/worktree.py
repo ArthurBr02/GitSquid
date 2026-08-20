@@ -188,6 +188,24 @@ def apply_patch(repo: Path, patch: str, *, target: str) -> str:
     return {"stage": "Hunk staged.", "unstage": "Hunk unstaged.", "discard": "Hunk discarded."}[target]
 
 
+RESOLUTIONS = {"ours": "--ours", "theirs": "--theirs"}
+
+
+def resolve(repo: Path, paths: list[str], *, side: str) -> str:
+    """Settle a conflict by keeping one side whole, then staging it as resolved."""
+    require_paths(paths)
+    if side not in RESOLUTIONS:
+        raise WorktreeError("A conflict is resolved with 'ours' or 'theirs'.")
+    conflicted = {entry.path for entry in status(repo) if entry.conflicted}
+    unknown = [path for path in paths if path not in conflicted]
+    if unknown:
+        raise WorktreeError(f"{unknown[0]} is not in conflict.")
+    checked(repo, ["checkout", RESOLUTIONS[side], "--", *paths], action="Could not resolve")
+    checked(repo, ["add", "--", *paths], action="Could not stage the resolution")
+    kept = "your side" if side == "ours" else "the incoming side"
+    return f"Kept {kept} for {plural(len(paths), 'file')}, staged as resolved."
+
+
 def commit(repo: Path, message: str, *, amend: bool = False) -> dict:
     message = (message or "").strip()
     if not message:

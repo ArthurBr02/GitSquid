@@ -21,6 +21,7 @@ const state = {
   commitMessage: "",
   counts: {},
   view: null,
+  limit: 80,
   amend: false,
   busy: false,
 };
@@ -288,6 +289,24 @@ function renderRows() {
     list.append(item);
   }
 
+  const more = clear($("rows-more"));
+  const { commits, total_commits: total } = state.data.graph;
+  const deeper = total > commits.length && !state.query && state.filter === "all";
+  more.hidden = !deeper;
+  if (deeper) {
+    more.append(
+      el("span", { text: `${commits.length} of ${plural(total, "commit")} loaded` }),
+      el("button", {
+        type: "button", class: "btn tiny ghost",
+        onclick: () => {
+          state.limit = Math.min(state.limit + 200, 5000);
+          quiet(refresh());
+        },
+        text: `Load ${Math.min(200, total - commits.length)} more`,
+      }),
+    );
+  }
+
   Graph.paint($("graph-canvas"), laid, {
     rowHeight: ROW_H,
     gap,
@@ -432,6 +451,19 @@ function stashMenu(stash) {
 }
 
 function fileMenu(entry, staged) {
+  if (entry.conflicted) {
+    return [
+      { header: `${entry.path} — in conflict` },
+      { label: "Keep my side", hint: "ours",
+        run: confirmed(`Keep your side of ${entry.path} whole and stage it?`, "resolve", { paths: [entry.path], side: "ours" }) },
+      { label: "Keep the incoming side", hint: "theirs",
+        run: confirmed(`Keep the incoming side of ${entry.path} whole and stage it?`, "resolve", { paths: [entry.path], side: "theirs" }) },
+      { label: "Mark resolved", hint: "stage", run: () => worktreeAction("stage", [entry.path]) },
+      "-",
+      { label: "Open the diff", run: () => openFileView(worktreeContext(false), entry.path) },
+      { label: "Copy path", run: () => copy(entry.path, "Path") },
+    ];
+  }
   return [
     { header: entry.path },
     { label: staged ? "Unstage" : "Stage",
@@ -1442,7 +1474,7 @@ function move(step) {
 
 async function refresh(keepSelection = true) {
   const [stateData, graph, worktreeData, repos] = await Promise.all([
-    api("/api/state"), api("/api/graph"), api("/api/worktree"), api("/api/repos"),
+    api("/api/state"), api(`/api/graph?limit=${state.limit}`), api("/api/worktree"), api("/api/repos"),
   ]);
   state.data = { state: stateData, graph };
   state.worktree = worktreeData;

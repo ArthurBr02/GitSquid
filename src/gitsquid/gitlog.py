@@ -62,6 +62,11 @@ def working_status(repo: Path) -> dict[str, int]:
     return {"staged": staged, "unstaged": unstaged, "untracked": untracked}
 
 
+def count_commits(repo: Path) -> int:
+    result = run(repo, ["rev-list", "--count", "HEAD"])
+    return int(result.stdout.strip() or 0) if result.returncode == 0 else 0
+
+
 def commits(repo: Path, *, limit: int = 80) -> list[Commit]:
     """Commits newest first, in topological order so the graph can be laid out row by row."""
     result = run(repo, ["log", "--topo-order", f"--max-count={limit}", f"--pretty=format:{LOG_FORMAT}"])

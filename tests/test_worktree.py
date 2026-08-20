@@ -389,3 +389,41 @@ class TestLineCounts:
 
     def test_a_clean_tree_counts_nothing(self, repo):
         assert worktree.line_counts(repo) == {}
+
+
+class TestResolvingConflicts:
+    @pytest.fixture
+    def conflicted(self, repo):
+        (repo / "shared.py").write_text("valeur = 0\n", encoding="utf-8")
+        worktree.stage(repo, ["shared.py"])
+        worktree.commit(repo, "base")
+        worktree.create_branch(repo, "side")
+        (repo / "shared.py").write_text("valeur = 2\n", encoding="utf-8")
+        worktree.stage(repo, ["shared.py"])
+        worktree.commit(repo, "cote")
+        worktree.checkout(repo, "main")
+        (repo / "shared.py").write_text("valeur = 1\n", encoding="utf-8")
+        worktree.stage(repo, ["shared.py"])
+        worktree.commit(repo, "principal")
+        git(repo, "merge", "side")
+        return repo
+
+    def test_keeping_our_side_stages_it_as_resolved(self, conflicted):
+        assert "your side" in worktree.resolve(conflicted, ["shared.py"], side="ours")
+        assert (conflicted / "shared.py").read_text() == "valeur = 1\n"
+        # Keeping our side restores exactly what HEAD holds, so git has nothing left to report.
+        assert [entry for entry in worktree.status(conflicted) if entry.conflicted] == []
+
+    def test_keeping_their_side_takes_the_incoming_content(self, conflicted):
+        worktree.resolve(conflicted, ["shared.py"], side="theirs")
+        assert (conflicted / "shared.py").read_text() == "valeur = 2\n"
+        entry = entry_for(conflicted, "shared.py")
+        assert entry.staged and not entry.conflicted
+
+    def test_a_file_that_is_not_in_conflict_is_refused(self, conflicted):
+        with pytest.raises(WorktreeError, match="not in conflict"):
+            worktree.resolve(conflicted, ["calc.py"], side="ours")
+
+    def test_an_unknown_side_is_refused(self, conflicted):
+        with pytest.raises(WorktreeError, match="'ours' or 'theirs'"):
+            worktree.resolve(conflicted, ["shared.py"], side="mine")

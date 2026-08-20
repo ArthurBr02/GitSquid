@@ -140,11 +140,17 @@ class UIServer:
             conn.close()
 
     def graph(self, limit: int = 80) -> dict:
+        limit = max(10, min(limit, 5000))
         conn, _ = self.service()
         try:
             rows = [asdict(commit) | {"short": commit.short} for commit in gitlog.commits(self.settings.repo, limit=limit)]
             changes = [_change_row(change) for change in ChangeRepo(conn).list(limit=limit)]
-            return {"commits": rows, "changes": changes}
+            return {
+                "commits": rows,
+                "changes": changes,
+                "limit": limit,
+                "total_commits": gitlog.count_commits(self.settings.repo),
+            }
         finally:
             conn.close()
 
@@ -385,6 +391,7 @@ def _handlers(repo: Path, payload: dict):
         "unstage": lambda: worktree.unstage(repo, paths),
         "discard": lambda: worktree.discard(repo, paths),
         "ignore": lambda: worktree.ignore(repo, paths),
+        "resolve": lambda: worktree.resolve(repo, paths, side=str(payload.get("side") or "")),
         "stage-hunk": lambda: worktree.apply_patch(repo, _string(payload, "patch"), target="stage"),
         "unstage-hunk": lambda: worktree.apply_patch(repo, _string(payload, "patch"), target="unstage"),
         "discard-hunk": lambda: worktree.apply_patch(repo, _string(payload, "patch"), target="discard"),
@@ -513,7 +520,7 @@ class _Handler(BaseHTTPRequestHandler):
             elif route == "/api/state":
                 self._json(HTTPStatus.OK, self.ui.state())
             elif route == "/api/graph":
-                self._json(HTTPStatus.OK, self.ui.graph())
+                self._json(HTTPStatus.OK, self.ui.graph(int((query.get("limit") or ["80"])[0])))
             elif route == "/api/worktree":
                 self._json(HTTPStatus.OK, self.ui.worktree())
             elif route == "/api/repos":
