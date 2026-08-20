@@ -126,6 +126,67 @@ def load_payload(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _change_from(raw: dict, where: str) -> Change:
+    task = _require(raw, "task", (str,), where=where)
+    diff = _require(raw, "diff", (str,), where=where)
+    created_at = _require(raw, "created_at", (str,), where=where)
+    def text(key: str) -> str | None:
+        return raw[key] if isinstance(raw.get(key), str) else None
+
+    try:
+        return Change(
+            task=task,
+            diff=diff,
+            status=ChangeStatus(raw.get("status", "proposed")),
+            source=ChangeSource(raw.get("source", "model")),
+            model=text("model"),
+            rationale=text("rationale") or "",
+            files_touched=[path for path in raw.get("files_touched", []) if isinstance(path, str)],
+            base_commit=text("base_commit"),
+            is_sample=bool(raw.get("is_sample", False)),
+            created_at=created_at,
+            applied_at=text("applied_at"),
+        )
+    except (ValidationError, ValueError) as exc:
+        raise ImportError_(f"{where}: {exc}") from exc
+
+
+def _test_runs_from(raw: dict, change: Change, where: str) -> list[TestRun]:
+    return [
+        TestRun(
+            change_id=change.id,
+            command=_require(run, "command", (str,), where=f"{where}.test_runs"),
+            exit_code=int(_require(run, "exit_code", (int,), where=f"{where}.test_runs")),
+            duration_ms=int(run.get("duration_ms") or 0),
+            output_tail=str(run.get("output_tail") or ""),
+            is_sample=bool(run.get("is_sample", False)),
+            created_at=str(run.get("created_at") or change.created_at),
+        )
+        for run in raw.get("test_runs", []) or []
+    ]
+
+
+def _events_from(raw: dict, change: Change) -> list[Event]:
+    return [
+        Event(
+            kind=str(event.get("kind") or "imported"),
+            message=str(event.get("message") or ""),
+            change_id=change.id,
+            is_sample=bool(event.get("is_sample", False)),
+            created_at=str(event.get("created_at") or change.created_at),
+        )
+        for event in raw.get("events", []) or []
+    ]
+
+
+def _insert_event(conn: sqlite3.Connection, event: Event) -> None:
+    # Not EventLog.record(): an imported event keeps the timestamp it came with.
+    conn.execute(
+        "INSERT INTO events (change_id, kind, message, is_sample, created_at) VALUES (?,?,?,?,?)",
+        (event.change_id, event.kind, event.message, int(event.is_sample), event.created_at),
+    )
+
+
 def import_from_file(conn: sqlite3.Connection, path: Path) -> ImportStats:
     payload = load_payload(path)
     changes = ChangeRepo(conn)
@@ -135,66 +196,20 @@ def import_from_file(conn: sqlite3.Connection, path: Path) -> ImportStats:
 
     for position, raw in enumerate(payload["changes"], start=1):
         where = f"changes[{position}]"
-        task = _require(raw, "task", (str,), where=where)
-        diff = _require(raw, "diff", (str,), where=where)
-        created_at = _require(raw, "created_at", (str,), where=where)
-        if changes.exists(diff_digest(diff), created_at):
+        change = _change_from(raw, where)
+        if changes.exists(diff_digest(change.diff), change.created_at):
             skipped += 1
             continue
-        try:
-            change = Change(
-                task=task,
-                diff=diff,
-                status=ChangeStatus(raw.get("status", "proposed")),
-                source=ChangeSource(raw.get("source", "model")),
-                model=raw.get("model") if isinstance(raw.get("model"), str) else None,
-                rationale=raw.get("rationale") if isinstance(raw.get("rationale"), str) else "",
-                files_touched=[p for p in raw.get("files_touched", []) if isinstance(p, str)],
-                base_commit=raw.get("base_commit")
-                if isinstance(raw.get("base_commit"), str)
-                else None,
-                is_sample=bool(raw.get("is_sample", False)),
-                created_at=created_at,
-                applied_at=raw.get("applied_at") if isinstance(raw.get("applied_at"), str) else None,
-            )
-        except (ValidationError, ValueError) as exc:
-            raise ImportError_(f"{where}: {exc}") from exc
 
         changes.add(change)
         imported += 1
-
-        for run_raw in raw.get("test_runs", []) or []:
-            runs.add(
-                TestRun(
-                    change_id=change.id,
-                    command=_require(run_raw, "command", (str,), where=f"{where}.test_runs"),
-                    exit_code=int(_require(run_raw, "exit_code", (int,), where=f"{where}.test_runs")),
-                    duration_ms=int(run_raw.get("duration_ms") or 0),
-                    output_tail=str(run_raw.get("output_tail") or ""),
-                    is_sample=bool(run_raw.get("is_sample", False)),
-                    created_at=str(run_raw.get("created_at") or change.created_at),
-                )
-            )
+        for run in _test_runs_from(raw, change, where):
+            runs.add(run)
             run_count += 1
-
-        for event_raw in raw.get("events", []) or []:
-            event = Event(
-                kind=str(event_raw.get("kind") or "imported"),
-                message=str(event_raw.get("message") or ""),
-                change_id=change.id,
-                is_sample=bool(event_raw.get("is_sample", False)),
-                created_at=str(event_raw.get("created_at") or change.created_at),
-            )
-            conn.execute(
-                "INSERT INTO events (change_id, kind, message, is_sample, created_at)"
-                " VALUES (?,?,?,?,?)",
-                (event.change_id, event.kind, event.message, int(event.is_sample), event.created_at),
-            )
+        for event in _events_from(raw, change):
+            _insert_event(conn, event)
             event_count += 1
-
         events.record("imported", f"imported from {path.name}", change_id=change.id)
         event_count += 1
 
-    return ImportStats(
-        changes=imported, test_runs=run_count, events=event_count, skipped=skipped
-    )
+    return ImportStats(changes=imported, test_runs=run_count, events=event_count, skipped=skipped)
