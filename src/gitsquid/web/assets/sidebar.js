@@ -205,57 +205,71 @@ function renderOperation(repo) {
   );
 }
 
-function renderChrome() {
-  const { repo, config, index, counts, total_changes: total } = state.data.state;
+function renderRepoChip(repo, config) {
+  const head = repo.head || { detached: false, sha: "" };
   document.title = `${repo.name} — GitSquid`;
   $("repo-name").textContent = repo.name;
-  const head = repo.head || { detached: false, sha: "" };
   $("repo-branch").textContent = head.detached ? `detached at ${head.sha}` : repo.branch;
   $("repo-branch").classList.toggle("detached", head.detached);
   $("db-path").textContent = config.database;
   $("db-path").title = config.database;
-  $("index-stat").textContent = index.files
-    ? `${index.files.toLocaleString()} files · ${index.chunks.toLocaleString()} chunks indexed`
-    : "not indexed yet";
+}
 
+function modelMenu(config, repo) {
+  if (config.model_available) {
+    return [
+      { header: "Model" },
+      { label: config.model, hint: `effort ${config.effort}` },
+      { label: "Where it comes from", hint: ".env" },
+    ];
+  }
+  return [
+    { header: "Degraded mode" },
+    { label: `No ANTHROPIC_API_KEY in ${repo.name}/.env` },
+    { label: "Everything but a model proposal works" },
+    { label: "Copy the line to add to .env",
+      run: () => copy("ANTHROPIC_API_KEY=sk-ant-…", "The .env line") },
+  ];
+}
+
+function renderModelChip(repo, config) {
   const model = clear($("model-state"));
   model.append(
     el("span", { class: `dot ${config.model_available ? "on" : "off"}`, "aria-hidden": "true" }),
     el("button", {
       type: "button", class: "model-chip",
-      onclick: (event) => Menu.show(event, config.model_available ? [
-        { header: "Model" },
-        { label: config.model, hint: `effort ${config.effort}` },
-        { label: "Where it comes from", hint: ".env" },
-      ] : [
-        { header: "Degraded mode" },
-        { label: "No ANTHROPIC_API_KEY in this repository" },
-        { label: "Everything but a model proposal works" },
-        { label: "Copy the line to add to .env",
-          run: () => copy("ANTHROPIC_API_KEY=sk-ant-…", "The .env line") },
-      ]),
+      onclick: (event) => Menu.show(event, modelMenu(config, repo)),
       text: config.model_available ? config.model : "no API key",
     }),
   );
   model.title = config.model_available
     ? `Proposals go to ${config.model} (effort ${config.effort}).`
-    : `No ANTHROPIC_API_KEY in ${repo.path}/.env — GitSquid still validates, applies, tests and `
-      + "records a diff you paste yourself.";
+    : "No API key here: GitSquid still validates, applies, tests and records a diff you paste.";
+}
 
-  $("filter-label").textContent = FILTER_LABELS[state.filter] || "Everything";
-  $("btn-filter").classList.toggle("on", state.filter !== "all");
-
+function renderRemoteButtons(repo) {
   const tracking = repo.tracking || { ahead: 0, behind: 0 };
-  const hasRemote = (repo.remotes || []).length > 0;
   for (const [id, count] of [["badge-ahead", tracking.ahead], ["badge-behind", tracking.behind]]) {
     const badge = $(id);
     badge.hidden = !count;
     badge.textContent = String(count || "");
   }
   for (const id of ["btn-fetch", "btn-pull", "btn-push"]) {
-    $(id).disabled = !hasRemote;
+    $(id).disabled = (repo.remotes || []).length === 0;
   }
+}
 
+function renderChrome() {
+  const { repo, config, index, counts } = state.data.state;
+  renderRepoChip(repo, config);
+  renderModelChip(repo, config);
+  renderRemoteButtons(repo);
+
+  $("index-stat").textContent = index.files
+    ? `${index.files.toLocaleString()} files · ${index.chunks.toLocaleString()} chunks indexed`
+    : "not indexed yet";
+  $("filter-label").textContent = FILTER_LABELS[state.filter] || "Everything";
+  $("btn-filter").classList.toggle("on", state.filter !== "all");
   state.counts = { ...counts, all: state.rows.length, commits: state.data.graph.commits.length };
 }
 

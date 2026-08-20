@@ -290,21 +290,11 @@ const STATUS_WORDS = {
   U: "conflicted", T: "type changed", "?": "untracked",
 };
 
-function renderViewer() {
-  const viewer = $("viewer");
-  const graphIsShowing = !state.view;
-  $("pane-head").hidden = !graphIsShowing;
-  $("rows-wrap").hidden = !graphIsShowing;
-  $("graph-empty").hidden = !graphIsShowing || Boolean(state.rows.filter(matches).length);
-  viewer.hidden = graphIsShowing;
-  if (graphIsShowing) return;
-
-  const { context, path, diff, loading, truncated, error, mode, blame } = state.view;
-  const entry = context.files.find((file) => file.path === path) || { status: "M", path };
+function viewerHead(view, entry) {
+  const { context, path, mode } = view;
   const [dir, name] = splitPath(path);
   const at = context.files.findIndex((file) => file.path === path);
-
-  fill(clear($("viewer-head")),
+  return fill(clear($("viewer-head")),
     path ? el("span", { class: `code ${entry.status}`, title: STATUS_WORDS[entry.status] || "", text: entry.status }) : null,
     path
       ? el("span", { class: "path", title: path },
@@ -333,38 +323,51 @@ function renderViewer() {
       "aria-label": "Back to the graph", onclick: closeViewer, text: "✕",
     }),
   );
+}
 
+function viewerBody(view, entry) {
+  const { context, path, diff, loading, truncated, error, mode, blame } = view;
   const body = clear($("viewer-body"));
   body.classList.toggle("wrap", state.diffView.wrap);
-  if (loading) {
-    body.append(el("p", { class: "empty-state", text: "Loading the diff…" }));
-    return;
-  }
-  if (error) {
-    body.append(el("p", { class: "banner bad", text: error }));
-    return;
-  }
+
+  if (loading) return body.append(el("p", { class: "empty-state", text: "Loading the diff…" }));
+  if (error) return body.append(el("p", { class: "banner bad", text: error }));
   if (mode === "blame") {
     body.append(renderBlame(blame));
     if (blame.truncated) {
       body.append(el("p", { class: "banner warn", text: "Only the first eight thousand lines are blamed." }));
     }
-    return;
+    return undefined;
   }
   if (!diff || !diff.trim()) {
-    body.append(el("p", { class: "empty-state", text: entry.binary
+    return body.append(el("p", { class: "empty-state", text: entry.binary
       ? "Binary file — nothing to show as text."
       : "No textual difference for this file." }));
-    return;
   }
-  const singleFile = Boolean(path);
-  body.append(renderDiff(diff, context.hunks ? context.hunks(entry) : null, { headers: !singleFile }));
-  const bar = pickBar();
-  if (bar) body.append(bar);
+
+  fill(body,
+    renderDiff(diff, context.hunks ? context.hunks(entry) : null, { headers: !path }),
+    pickBar(),
+    truncated
+      ? el("p", { class: "banner warn", text: "This patch is very large and was truncated for display." })
+      : null,
+  );
   if (!body.contains(document.activeElement)) body.scrollTop = 0;
-  if (truncated) {
-    body.append(el("p", { class: "banner warn", text: "This patch is very large and was truncated for display." }));
-  }
+  return undefined;
+}
+
+function renderViewer() {
+  const showingGraph = !state.view;
+  $("pane-head").hidden = !showingGraph;
+  $("rows-wrap").hidden = !showingGraph;
+  $("graph-empty").hidden = !showingGraph || Boolean(state.rows.filter(matches).length);
+  $("viewer").hidden = showingGraph;
+  if (showingGraph) return;
+
+  const view = state.view;
+  const entry = view.context.files.find((file) => file.path === view.path) || { status: "M", path: view.path };
+  viewerHead(view, entry);
+  viewerBody(view, entry);
 }
 
 function parseDiff(text) {
