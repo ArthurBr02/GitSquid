@@ -613,7 +613,7 @@ function renderSidebar() {
         ? [el("span", { class: state.worktree.staged ? "on" : "", text: `${state.worktree.staged} staged` }),
            ` · ${state.worktree.unstaged} unstaged`]
         : ["nothing to commit"],
-      onclick: () => { if (files.length) select("wip"); },
+      onclick: () => select("wip"),
       menu: files.length ? wipMenu : null,
     })],
     empty: "",
@@ -1224,9 +1224,9 @@ function renderWorktreeDetail() {
   const repo = state.data.state.repo;
 
   detail.append(el("div", { class: "detail-head" }, [
-    el("h2", { text: "Uncommitted changes" }),
+    el("h2", { text: files.length ? "Uncommitted changes" : "Working tree" }),
     el("div", { class: "detail-sub" }, [
-      el("span", { text: plural(files.length, "file") }),
+      el("span", { text: files.length ? plural(files.length, "file") : "clean — nothing to commit" }),
       el("span", { text: `${staged.length} staged` }),
       el("span", { text: `${unstaged.length} unstaged` }),
       state.worktree.conflicted ? el("span", { class: "tag failed", text: "conflicts" }) : null,
@@ -1565,6 +1565,10 @@ async function renderCommitDetail(sha) {
       el("span", { text: commit.author }),
       el("span", { class: "relative", title: commit.date, text: relativeTime(commit.date) }),
       commit.merge ? el("span", { class: "tag applied", text: "merge" }) : null,
+      ...commit.parents.map((parent, index) => el("button", {
+        type: "button", class: "sha-copy", title: `Go to parent ${index + 1}`,
+        onclick: () => openCommit(parent), text: `↰ ${parent.slice(0, 7)}`,
+      })),
       ...commit.refs.map((ref) => el("span", { class: "tag ref", text: ref })),
     ]),
     el("div", { class: "detail-actions" }, [
@@ -2011,7 +2015,7 @@ function bind() {
       "/": () => $("search").focus(),
       n: openPropose,
       o: openReposDialog,
-      w: () => { if (state.worktree.files.length) select("wip"); },
+      w: () => select("wip"),
       i: reindex,
       r: () => quiet(refresh()),
       b: createBranch,

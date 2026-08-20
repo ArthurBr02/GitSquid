@@ -85,8 +85,9 @@ and can end at `reverted`; illegal transitions are refused by the model layer, n
 it is a local tool for one person. Three columns, one job each:
 
 - **Left — what the repository holds.** Collapsible sections, remembered between sessions: the
-  working tree, local branches, remote branches, tags, stashes. Every entry is the same row, and
-  every row answers a right click — or the ⋯ that appears on hover — with what can be done to it.
+  working tree, local branches with how far each has drifted from its upstream, remote branches,
+  tags, stashes. Every entry is the same row, and every row answers a right click — or the ⋯ that
+  appears on hover — with what can be done to it.
 - **Middle — the graph, or one file.** A WIP node for uncommitted work sits on top, then GitSquid
   changes and git commits on one timeline; the lanes are laid out over the rows actually on screen
   and painted as one drawing, so a branch keeps one colour from tip to root and a merge leaves one
@@ -114,9 +115,19 @@ stage, unstage, discard, ignore, file history, copy path. On a recorded change: 
 revert.
 
 - **Per-hunk staging** — a working-tree diff carries Stage, Unstage and Discard on each hunk.
+- **Search** — typing filters the rows on screen; <kbd>Enter</kbd> asks git instead, across every
+  branch, by message, author or touched path.
+- **Depth** — the graph says how far back it has looked ("80 of 3007 commits loaded") and goes
+  further on request.
+- **Reading options** — wrap long lines, ignore whitespace, or ask for ten or twenty-five lines of
+  context instead of three; each one is remembered.
+- **Undo and amend** — the head commit offers both: amend reopens it in the commit box, undo is a
+  soft reset onto its parent that brings the work back staged.
+- **Appearance** — dark, light, or whatever the system asks for.
 - **Interrupted operations** — when a merge, rebase, cherry-pick or revert stops on a conflict, a
   bar names it, counts the files that still conflict, and offers **Continue** (once none do) or
-  **Abort**; the conflicted files get their own group in the panel.
+  **Abort**. The conflicted files get their own group in the panel, and each can be settled by
+  keeping your side or the incoming side whole.
 - **File history** — the commits that touched one file, renames followed, from its context menu.
 - **New change** — task plus an optional diff. Without an API key the diff becomes required, and
   the dialog says so before you submit rather than after.
