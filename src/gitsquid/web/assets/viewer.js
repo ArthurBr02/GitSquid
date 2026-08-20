@@ -152,6 +152,16 @@ function renderBlame(payload) {
   return box;
 }
 
+/* From a file's history, what you want is that file at that commit — not the commit. */
+async function openFileAtCommit(sha, path) {
+  try {
+    const commit = await api(`/api/commits/${sha}`);
+    await openFileView(commitContext(commit), path);
+  } catch (error) {
+    toast("bad", error.message);
+  }
+}
+
 async function openFileView(context, path) {
   state.view = { context, path, mode: "diff", diff: null, loading: true };
   renderViewer();

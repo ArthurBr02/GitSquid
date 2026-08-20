@@ -507,7 +507,8 @@ body.resizing { cursor: col-resize; user-select: none; }
 .files .st { color: var(--text-faint); width: 1.4em; }
 
 .history { list-style: none; margin: 0; padding: 0; }
-.history li { border-bottom: 1px solid var(--line-soft); }
+.history li { display: flex; align-items: center; border-bottom: 1px solid var(--line-soft); }
+.history li:hover .row-menu { opacity: 1; }
 .history .open {
   display: flex; align-items: baseline; gap: var(--s2); width: 100%;
   padding: 7px var(--s4);

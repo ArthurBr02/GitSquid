@@ -295,8 +295,9 @@ function filterMenu() {
 
 /* Everything that is neither a git verb nor the change loop: rare, and out of the way. */
 function moreMenu() {
-  const samples = state.data.state.samples;
+  const { samples, config } = { samples: state.data.state.samples, config: state.data.state.config };
   return [
+    { header: `GitSquid ${config.version} · git ${config.git_version}` },
     { label: "Repositories…", hint: "O", run: openReposDialog },
     { label: "Refresh", hint: "R", run: () => quiet(refresh()) },
     "-",

@@ -106,6 +106,17 @@ def require_commit_ref(repo: Path, value: str) -> str:
     return require_branch(repo, candidate)
 
 
+def git_version() -> str:
+    """The git behind everything here, for the days when the version is the answer."""
+    try:
+        result = subprocess.run(
+            ["git", "--version"], capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return result.stdout.strip().removeprefix("git version ") or "unknown"
+
+
 def remotes(repo: Path) -> list[dict[str, str]]:
     seen: dict[str, str] = {}
     for line in run(repo, ["remote", "-v"]).stdout.splitlines():

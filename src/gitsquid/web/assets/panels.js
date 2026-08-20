@@ -138,12 +138,20 @@ async function openFileHistory(path) {
   const list = el("ol", { class: "history" });
   for (const commit of payload.commits) {
     list.append(el("li", {}, [
-      el("button", { type: "button", class: "open", onclick: () => openCommit(commit.sha) }, [
+      el("button", {
+        type: "button", class: "open", title: `Show ${path} as this commit left it`,
+        onclick: () => openFileAtCommit(commit.sha, path),
+      }, [
         el("span", { class: "row-title", text: commit.subject || "(no message)" }),
         el("span", { class: "sha", text: commit.short }),
         el("span", { class: "who", text: commit.author }),
         el("span", { class: "relative", text: relativeTime(commit.date) }),
       ]),
+      el("button", {
+        type: "button", class: "row-menu", title: "Show the whole commit",
+        "aria-label": `Show the commit ${commit.short}`,
+        onclick: () => openCommit(commit.sha),
+      }, ["→"]),
     ]));
   }
   detail.append(el("section", { class: "detail-section" }, [

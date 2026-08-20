@@ -12,10 +12,12 @@ from urllib.parse import parse_qs, urlparse
 from .. import (
     clone, diffs, gitlog, history, indexer, portability, refs, registry, sampledata, worktree,
 )
+from .. import __version__
 from ..config import ConfigError, Settings, load_settings
 from ..db import open_db
 from ..llm import AnthropicBackend, PatchFileBackend, ProposalError
 from ..models import ChangeRepo, ChangeStatus, EventLog, TestRunRepo
+from .. import gitcmd
 from ..gitcmd import GitError, require_paths
 from ..phrasing import plural
 from ..safety import clean_text_input
@@ -148,6 +150,8 @@ class UIServer:
                     "context_budget": self.settings.max_context_chars,
                     "database": str(self.settings.db_path),
                     "model_available": self.settings.model_available,
+                    "version": __version__,
+                    "git_version": gitcmd.git_version(),
                 },
                 "index": summary,
                 "counts": counts,
