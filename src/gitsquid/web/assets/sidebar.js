@@ -265,6 +265,10 @@ function renderChrome() {
   renderModelChip(repo, config);
   renderRemoteButtons(repo);
 
+  const head = repo.head || { branch: "", sha: "", detached: false };
+  $("head-label").textContent = head.detached ? head.sha : (head.branch || "HEAD");
+  $("btn-head").title = `Go to where you are: ${head.branch || "detached"} at ${head.sha} (H)`;
+
   $("index-stat").textContent = index.files
     ? `${index.files.toLocaleString()} files · ${index.chunks.toLocaleString()} chunks indexed`
     : "not indexed yet";

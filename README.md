@@ -61,10 +61,12 @@ it is a local tool for one person. Three columns, one job each:
   working tree, local branches with how far each has drifted from its upstream, remote branches,
   tags, stashes. Every entry is the same row, and every row answers a right click — or the ⋯ that
   appears on hover — with what can be done to it.
-- **Middle — the graph, or one file.** A WIP node for uncommitted work sits on top, then GitSquid
-  changes and git commits on one timeline; the lanes are laid out over the rows actually on screen
-  and painted as one drawing, so a branch keeps one colour from tip to root and a merge leaves one
-  curve per parent. Click a file anywhere in the interface and the graph gives way to that file's
+- **Middle — the graph, or one file.** Every branch's commits, newest first — work pushed to
+  another branch is newer, not invisible — with a WIP node for uncommitted work on top. Where you
+  are is ringed on the graph and marked on its row, and the chip in the header says which branch
+  that is and jumps to it. The lanes are laid out over the rows actually on screen and painted as
+  one drawing, so a branch keeps one colour from tip to root and a merge leaves one curve per
+  parent. Click a file anywhere in the interface and the graph gives way to that file's
   diff, full width, with <kbd>↑</kbd> <kbd>↓</kbd> to walk the other files of the same commit and
   <kbd>Esc</kbd> to come back.
 - **Right — what is selected.** A commit shows its message, then its files — grouped by folder,
@@ -117,7 +119,8 @@ Both dividers are draggable, keep their width between sessions, and are focusabl
 resizing with <kbd>←</kbd><kbd>→</kbd>.
 
 Keyboard: <kbd>N</kbd> new change · <kbd>W</kbd> uncommitted changes · <kbd>B</kbd> branch ·
-<kbd>T</kbd> tag · <kbd>S</kbd> stash · <kbd>R</kbd> refresh · <kbd>I</kbd> re-index ·
+<kbd>T</kbd> tag · <kbd>S</kbd> stash · <kbd>H</kbd> where you are · <kbd>R</kbd> refresh ·
+<kbd>I</kbd> re-index ·
 <kbd>/</kbd> search · <kbd>↑</kbd><kbd>↓</kbd> or <kbd>j</kbd><kbd>k</kbd> move ·
 <kbd>Enter</kbd> focus the detail · <kbd>Shift</kbd>+<kbd>F10</kbd> the menu of the selected row ·
 <kbd>Esc</kbd> leave a field, close a menu, or leave a file · <kbd>?</kbd> the full list. Nothing

@@ -83,7 +83,10 @@ function rowContent(row) {
       row.is_sample ? el("span", { class: "tag sample", text: "sample" }) : null);
     side.append(el("span", { text: `#${row.id}` }), el("span", { text: plural(row.files.length, "file") }));
   } else {
-    main.append(el("span", { class: "row-title", text: row.subject || "(no message)" }));
+    main.append(el("span", {
+      class: "row-title", title: isHead(row) ? "You are here" : undefined,
+      text: row.subject || "(no message)",
+    }));
     // Beyond two refs the subject loses more room than the badges are worth.
     for (const ref of row.refs.slice(0, 2)) {
       main.append(el("span", { class: "tag ref", title: ref, text: ref }));
@@ -109,9 +112,11 @@ function rowContent(row) {
   return [main, side];
 }
 
+const isHead = (row) => row.kind === "commit" && row.sha === (state.data.state.repo.head || {}).commit;
+
 function rowElement(row) {
   return el("li", {
-    class: `row${row.kind === "wip" ? " wip" : ""}`,
+    class: `row${row.kind === "wip" ? " wip" : ""}${isHead(row) ? " head" : ""}`,
     role: "option",
     id: `row-${row.key}`,
     "aria-selected": state.selected === row.key ? "true" : "false",
@@ -180,6 +185,7 @@ function paintGraph() {
     gap,
     width,
     pendingColor: (row) => (row.kind === "wip" ? "#f0b429" : STATUS_COLORS[row.status] || "#58a6ff"),
+    isHead,
     isSelected: (row) => row.key === state.selected,
   });
 }
@@ -220,6 +226,21 @@ function select(key) {
       el("h2", { text: "Could not load this item" }), el("p", { text: error.message }),
     ]));
   });
+}
+
+async function goToHead() {
+  const head = (state.data.state.repo.head || {}).commit;
+  if (!head) return;
+  const found = () => state.rows.find((row) => row.sha === head);
+  while (!found() && state.limit < 5000) {
+    state.limit = Math.min(state.limit + 400, 5000);
+    await quiet(refresh());
+  }
+  const row = found();
+  if (!row) return toast("bad", "HEAD is further back than the graph will load.");
+  select(row.key);
+  $(`row-${row.key}`)?.scrollIntoView({ block: "center" });
+  return undefined;
 }
 
 function openSelectedMenu() {
@@ -415,6 +436,7 @@ function bindToolbar() {
   $("repo-chip").addEventListener("click", (event) => Menu.show(event, repoMenu()));
   $("btn-more").addEventListener("click", (event) => Menu.show(event, moreMenu()));
   $("btn-filter").addEventListener("click", (event) => Menu.show(event, filterMenu()));
+  $("btn-head").addEventListener("click", goToHead);
   for (const [id, action] of [["btn-fetch", "fetch"], ["btn-pull", "pull"], ["btn-push", "push"]]) {
     $(id).addEventListener("click", () => worktreeAction(action, null));
   }
@@ -464,6 +486,7 @@ function bindKeyboard() {
       w: () => select("wip"),
       i: reindex,
       r: () => quiet(refresh()),
+      h: goToHead,
       b: createBranch,
       t: createTag,
       s: stashWorkingTree,

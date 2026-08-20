@@ -37,8 +37,8 @@ def current_branch(repo: Path) -> str:
 def head(repo: Path) -> dict:
     """Where HEAD is, and whether it is attached to a branch at all."""
     branch = current_branch(repo)
-    sha = run(repo, ["rev-parse", "--short", "HEAD"]).stdout.strip()
-    return {"branch": branch, "sha": sha, "detached": branch == "HEAD"}
+    full = run(repo, ["rev-parse", "HEAD"]).stdout.strip()
+    return {"branch": branch, "sha": full[:9], "commit": full, "detached": branch == "HEAD"}
 
 
 _TRACK = re.compile(r"(ahead|behind) (\d+)")
@@ -87,13 +87,19 @@ def working_status(repo: Path) -> dict[str, int]:
 
 
 def count_commits(repo: Path) -> int:
-    result = run(repo, ["rev-list", "--count", "HEAD"])
+    result = run(repo, ["rev-list", "--count", "--all"])
     return int(result.stdout.strip() or 0) if result.returncode == 0 else 0
 
 
 def commits(repo: Path, *, limit: int = 80) -> list[Commit]:
-    """Commits newest first, in topological order so the graph can be laid out row by row."""
-    result = run(repo, ["log", "--topo-order", f"--max-count={limit}", f"--pretty=format:{LOG_FORMAT}"])
+    """Every ref's commits, newest first — work on another branch is newer, not invisible.
+
+    --date-order rather than --topo-order: a parent still never sits above its child, but two
+    branches interleave by date instead of one being drained before the other starts.
+    """
+    result = run(repo, [
+        "log", "--date-order", "--all", f"--max-count={limit}", f"--pretty=format:{LOG_FORMAT}",
+    ])
     if result.returncode != 0:
         return []
     found: list[Commit] = []

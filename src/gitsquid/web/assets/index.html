@@ -60,6 +60,10 @@
         <input type="search" id="search" placeholder="Filter these rows — Enter searches the whole history  ( / )" autocomplete="off">
       </label>
       <button type="button" class="btn tiny ghost" id="btn-leave-search" hidden>Leave search</button>
+      <button type="button" class="filter-chip head-chip" id="btn-head" title="Go to where you are (H)">
+        <span class="dot-here" aria-hidden="true"></span>
+        <span id="head-label">HEAD</span>
+      </button>
       <span class="pane-count" id="row-count"></span>
     </div>
     <div class="rows-wrap" id="rows-wrap">
@@ -148,6 +152,7 @@
     <dt><kbd>W</kbd></dt><dd>Uncommitted changes</dd>
     <dt><kbd>B</kbd> <kbd>T</kbd> <kbd>S</kbd></dt><dd>Branch · tag · stash</dd>
     <dt><kbd>R</kbd> <kbd>I</kbd></dt><dd>Refresh · re-index</dd>
+    <dt><kbd>H</kbd></dt><dd>Go to where you are</dd>
     <dt><kbd>O</kbd></dt><dd>Repositories</dd>
     <dt><kbd>?</kbd></dt><dd>This dialog</dd>
   </dl>

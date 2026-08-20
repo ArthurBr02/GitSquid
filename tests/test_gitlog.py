@@ -43,6 +43,35 @@ class TestRefsAndLimits:
         assert gitlog.commits(empty) == []
 
 
+class TestWhatTheGraphShows:
+    def test_work_on_another_branch_is_newer_not_invisible(self, repo):
+        git(repo, "checkout", "-q", "-b", "ailleurs")
+        commit_file(repo, "ailleurs.py", "A = 1\n", "travail ailleurs")
+        git(repo, "checkout", "-q", "main")
+
+        subjects = [commit.subject for commit in gitlog.commits(repo)]
+        assert subjects[0] == "travail ailleurs", "the newest commit leads, whatever branch it is on"
+
+    def test_a_parent_never_sits_above_its_child(self, branchy):
+        commits = gitlog.commits(branchy)
+        position = {commit.sha: index for index, commit in enumerate(commits)}
+        for commit in commits:
+            for parent in commit.parents:
+                if parent in position:
+                    assert position[parent] > position[commit.sha]
+
+    def test_the_count_covers_every_ref(self, repo):
+        git(repo, "checkout", "-q", "-b", "ailleurs")
+        commit_file(repo, "ailleurs.py", "A = 1\n", "travail ailleurs")
+        git(repo, "checkout", "-q", "main")
+
+        assert gitlog.count_commits(repo) == 2
+
+    def test_head_carries_the_commit_it_is_on(self, repo):
+        current = git(repo, "rev-parse", "HEAD").stdout.strip()
+        assert gitlog.head(repo)["commit"] == current
+
+
 class TestParents:
     """The layout is computed in the browser, so the parent list is the whole contract."""
 

@@ -176,6 +176,12 @@ const Graph = (() => {
       }
       node(svg, { tag: "circle", cx: x, cy: y, r: radius, fill: color });
     }
+    if (options.isHead && options.isHead(placed.row)) {
+      node(svg, {
+        tag: "circle", cx: x, cy: y, r: radius + 3,
+        fill: "none", stroke: color, "stroke-width": 2.5,
+      });
+    }
     if (options.isSelected(placed.row)) {
       node(svg, {
         tag: "circle", cx: x, cy: y, r: radius + 4.5,
