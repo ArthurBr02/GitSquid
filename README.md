@@ -1,19 +1,22 @@
 # GitSquid
 
-A repository-local Git client assistant. It indexes one codebase into SQLite, asks one model for
-a diff, validates that diff, applies it, runs your tests, and records every step — so you can
-always see what changed, why, and whether it passed.
+A Git client for one repository at a time, with an assistant attached. It draws the graph, stages
+by file, by hunk or by line, commits, branches, merges, rebases, blames, searches the whole
+history — and, when you ask it to, gets a diff from a model, validates it, applies it, runs your
+tests, and records every step.
 
 Everything lives inside the repository you point it at. No account, no server, no telemetry.
 
 ```
-gitsquid ui                                     # the graph interface, on http://127.0.0.1:8756
+gitsquid ui                                     # the interface, on http://127.0.0.1:8756
 gitsquid init                                   # create .gitsquid/gitsquid.db
 gitsquid index                                  # index this repository
 gitsquid run "make period_start timezone-aware" # propose → apply → test → record
 gitsquid log                                    # what happened, newest first
 gitsquid revert 3                               # undo a change, recorded too
 ```
+
+The interface opens any repository as it is. `init` and `index` are for the assistant half only.
 
 ---
 
@@ -45,40 +48,6 @@ see [Degraded mode](#degraded-mode).
 
 ---
 
-## The core loop
-
-```
-        ┌── index ──┐        ┌── propose ──┐      ┌── apply ──┐     ┌── test ──┐
-repo ──▶│  files →  │──────▶ │  retrieval  │────▶ │ validate  │───▶ │ your     │
-        │  chunks   │        │  → model    │      │ git apply │     │ command  │
-        └───────────┘        └─────────────┘      └───────────┘     └──────────┘
-              │                     │                    │                │
-              └──────────────── SQLite: files, chunks, changes, test_runs, events ───┘
-```
-
-Every step writes to the database. A change moves through `proposed → applied → verified | failed`
-and can end at `reverted`; illegal transitions are refused by the model layer, not by the UI.
-
-### Commands
-
-| Command | Purpose |
-| --- | --- |
-| `gitsquid init` | Create `.gitsquid/gitsquid.db`. |
-| `gitsquid index [--force]` | Walk the repository, chunk text files, refresh the FTS5 index. |
-| `gitsquid search QUERY` | Show exactly what retrieval would feed a proposal. |
-| `gitsquid propose TASK` | Ask for a diff, validate it, record it. Writes nothing to your files. |
-| `gitsquid show ID` | Diff, rationale, test runs, and audit trail for one change. |
-| `gitsquid apply ID` | Apply a recorded diff to the working tree. |
-| `gitsquid test [ID]` | Run `GITSQUID_TEST_COMMAND` and attach the result to a change. |
-| `gitsquid revert ID` | Reverse an applied diff. |
-| `gitsquid log [--status S]` | List recorded changes. |
-| `gitsquid run TASK` | The whole loop in one command. `--revert-on-failure` undoes a red test run. |
-| `gitsquid export FILE` / `gitsquid import FILE` | Portable JSON in and out. |
-| `gitsquid sample load` / `gitsquid sample clear` | Labelled demo records, and their deletion. |
-| `gitsquid doctor` | Configuration, data location, degraded-mode status. |
-| `gitsquid ui` | Serve the graph interface on `127.0.0.1`: graph, staging, commit, and the change loop. |
-
----
 
 ## The interface
 
@@ -180,6 +149,41 @@ npm run build:linux            # .deb and .AppImage
 
 Each bundle is built by the operating system it targets — Tauri does not cross-compile a desktop
 bundle, and running the wrong one tells you so immediately instead of failing inside a Rust build.
+
+---
+
+## The core loop
+
+```
+        ┌── index ──┐        ┌── propose ──┐      ┌── apply ──┐     ┌── test ──┐
+repo ──▶│  files →  │──────▶ │  retrieval  │────▶ │ validate  │───▶ │ your     │
+        │  chunks   │        │  → model    │      │ git apply │     │ command  │
+        └───────────┘        └─────────────┘      └───────────┘     └──────────┘
+              │                     │                    │                │
+              └──────────────── SQLite: files, chunks, changes, test_runs, events ───┘
+```
+
+Every step writes to the database. A change moves through `proposed → applied → verified | failed`
+and can end at `reverted`; illegal transitions are refused by the model layer, not by the UI.
+
+### Commands
+
+| Command | Purpose |
+| --- | --- |
+| `gitsquid init` | Create `.gitsquid/gitsquid.db`. |
+| `gitsquid index [--force]` | Walk the repository, chunk text files, refresh the FTS5 index. |
+| `gitsquid search QUERY` | Show exactly what retrieval would feed a proposal. |
+| `gitsquid propose TASK` | Ask for a diff, validate it, record it. Writes nothing to your files. |
+| `gitsquid show ID` | Diff, rationale, test runs, and audit trail for one change. |
+| `gitsquid apply ID` | Apply a recorded diff to the working tree. |
+| `gitsquid test [ID]` | Run `GITSQUID_TEST_COMMAND` and attach the result to a change. |
+| `gitsquid revert ID` | Reverse an applied diff. |
+| `gitsquid log [--status S]` | List recorded changes. |
+| `gitsquid run TASK` | The whole loop in one command. `--revert-on-failure` undoes a red test run. |
+| `gitsquid export FILE` / `gitsquid import FILE` | Portable JSON in and out. |
+| `gitsquid sample load` / `gitsquid sample clear` | Labelled demo records, and their deletion. |
+| `gitsquid doctor` | Configuration, data location, degraded-mode status. |
+| `gitsquid ui` | Serve the interface on `127.0.0.1`. |
 
 ---
 
