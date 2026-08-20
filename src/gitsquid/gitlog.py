@@ -34,6 +34,13 @@ def current_branch(repo: Path) -> str:
     return name if result.returncode == 0 and name else "(no branch)"
 
 
+def head(repo: Path) -> dict:
+    """Where HEAD is, and whether it is attached to a branch at all."""
+    branch = current_branch(repo)
+    sha = run(repo, ["rev-parse", "--short", "HEAD"]).stdout.strip()
+    return {"branch": branch, "sha": sha, "detached": branch == "HEAD"}
+
+
 _TRACK = re.compile(r"(ahead|behind) (\d+)")
 
 

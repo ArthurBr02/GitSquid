@@ -291,3 +291,16 @@ class TestAccentedPaths:
         (accented / "café été.txt").write_text("modifié\n", encoding="utf-8")
         assert "modifié" in worktree.file_diff(accented, "café été.txt", staged=False)
         assert [entry.path for entry in worktree.status(accented)] == ["café été.txt"]
+
+
+class TestHead:
+    def test_head_names_the_branch_it_is_on(self, repo):
+        state = gitlog.head(repo)
+        assert state["branch"] == "main" and state["detached"] is False
+        assert len(state["sha"]) >= 7
+
+    def test_a_detached_head_says_so(self, repo):
+        git(repo, "checkout", "-q", "--detach", "HEAD")
+        state = gitlog.head(repo)
+        assert state["detached"] is True
+        assert state["branch"] == "HEAD"

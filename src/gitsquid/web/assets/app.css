@@ -765,3 +765,6 @@ body.resizing { cursor: col-resize; user-select: none; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   direction: rtl; text-align: left;
 }
+
+.branch.detached { color: var(--amber); }
+.branch.detached::before { content: "⚠ "; }

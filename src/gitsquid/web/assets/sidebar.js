@@ -207,7 +207,9 @@ function renderChrome() {
   const { repo, config, index, counts, total_changes: total } = state.data.state;
   document.title = `${repo.name} — GitSquid`;
   $("repo-name").textContent = repo.name;
-  $("repo-branch").textContent = repo.branch;
+  const head = repo.head || { detached: false, sha: "" };
+  $("repo-branch").textContent = head.detached ? `detached at ${head.sha}` : repo.branch;
+  $("repo-branch").classList.toggle("detached", head.detached);
   $("db-path").textContent = config.database;
   $("db-path").title = config.database;
   $("index-stat").textContent = index.files

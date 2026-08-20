@@ -130,6 +130,7 @@ class UIServer:
                     "name": self.settings.repo.name,
                     "path": str(self.settings.repo),
                     "branch": gitlog.current_branch(self.settings.repo),
+                    "head": gitlog.head(self.settings.repo),
                     "branches": gitlog.branches(self.settings.repo),
                     "status": gitlog.working_status(self.settings.repo),
                     "remote_branches": gitlog.remote_branches(self.settings.repo),
