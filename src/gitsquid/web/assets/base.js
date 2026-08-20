@@ -133,7 +133,7 @@ function status(message, busy = false) {
 
 function toast(kind, message) {
   const node = el("div", { class: `toast ${kind}`, role: "status" }, [
-    el("span", { class: "label", text: kind === "ok" ? "Success" : kind === "bad" ? "Failure" : "Info" }),
+    el("span", { class: "label", text: kind === "ok" ? "Success" : "Failure" }),
     el("span", { text: message }),
   ]);
   $("toasts").append(node);

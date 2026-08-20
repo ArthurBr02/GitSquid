@@ -460,13 +460,6 @@ body.resizing { cursor: col-resize; user-select: none; }
 .file-row .stage-btn { opacity: 0; }
 .file-row:hover .stage-btn, .file-row:focus-within .stage-btn { opacity: 1; }
 
-.diff-head {
-  display: flex; align-items: center; gap: var(--s2);
-  padding: 8px var(--s4);
-  font: 12px var(--mono); color: var(--text-dim);
-  border-bottom: 1px solid var(--line-soft);
-}
-.diff-head .tag { margin-left: auto; }
 
 /* ---------- diffs ---------- */
 .diff {
@@ -637,7 +630,6 @@ body.resizing { cursor: col-resize; user-select: none; }
 .toast .label { font: 600 9.5px var(--sans); letter-spacing: .09em; text-transform: uppercase; }
 .toast.ok .label { color: var(--green); }
 .toast.bad .label { color: var(--red); }
-.toast.info .label { color: var(--accent); }
 
 .spinner {
   width: 12px; height: 12px;
