@@ -427,3 +427,23 @@ class TestResolvingConflicts:
     def test_an_unknown_side_is_refused(self, conflicted):
         with pytest.raises(WorktreeError, match="'ours' or 'theirs'"):
             worktree.resolve(conflicted, ["shared.py"], side="mine")
+
+
+class TestStashContents:
+    def test_a_stash_carries_the_commit_it_is(self, repo):
+        (repo / "calc.py").write_text("mise de cote\n", encoding="utf-8")
+        worktree.stash_save(repo, "a lire")
+
+        entry = worktree.stash_list(repo)[0]
+        assert len(entry["sha"]) == 40
+        assert "a lire" in entry["subject"]
+
+    def test_that_commit_reads_like_any_other(self, repo):
+        from gitsquid import gitlog
+
+        (repo / "calc.py").write_text("mise de cote\n", encoding="utf-8")
+        worktree.stash_save(repo, "a lire")
+
+        detail = gitlog.commit_detail(repo, worktree.stash_list(repo)[0]["sha"])
+        assert [file["path"] for file in detail["files"]] == ["calc.py"]
+        assert "mise de cote" in gitlog.commit_patch(repo, detail["sha"], "calc.py")["diff"]

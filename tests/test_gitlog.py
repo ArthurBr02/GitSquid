@@ -227,3 +227,22 @@ class TestBlame:
     def test_an_unknown_file_is_reported(self, repo):
         with pytest.raises(ValueError, match="cannot attribute"):
             gitlog.blame(repo, "jamais-vu.py")
+
+
+class TestAnnotatedTags:
+    def test_a_tag_names_the_commit_it_stands_for(self, repo):
+        git(repo, "tag", "-a", "v1.0.0", "-m", "une version annotee")
+        head = git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        tag = gitlog.tags(repo)[0]
+        assert head.startswith(tag["sha"])
+        assert tag["subject"] == "une version annotee"
+
+    def test_the_panel_reads_a_tag_object_as_its_commit(self, repo):
+        git(repo, "tag", "-a", "v1.0.0", "-m", "une version annotee")
+        tag_object = git(repo, "rev-parse", "v1.0.0").stdout.strip()
+
+        detail = gitlog.commit_detail(repo, tag_object)
+        assert detail["subject"] == "initial"
+        assert detail["files"]
+        assert "calc.py" in gitlog.commit_patch(repo, tag_object)["diff"]

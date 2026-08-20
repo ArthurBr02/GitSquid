@@ -137,7 +137,8 @@ function tagMenu(tag) {
 
 function stashMenu(stash) {
   return [
-    { header: stash.ref },
+    { header: `${stash.ref} — ${stash.subject}` },
+    { label: "Show what it holds", disabled: !stash.sha, run: () => openCommit(stash.sha) },
     { label: "Apply", hint: "keeps it", run: runs("stash-apply", { ref: stash.ref }) },
     { label: "Pop", hint: "removes it", run: runs("stash-pop", { ref: stash.ref }) },
     { label: "Branch from it…",

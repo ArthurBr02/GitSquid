@@ -317,14 +317,18 @@ def delete_branch(repo: Path, name: str, *, force: bool = False) -> str:
 
 
 def stash_list(repo: Path) -> list[dict]:
-    result = run(repo, ["stash", "list", "--format=%gd%x1f%s%x1f%cr"])
+    """A stash is a commit, so it carries its sha: the interface reads it like any other."""
+    result = run(repo, ["stash", "list", "--format=%gd%x1f%s%x1f%cr%x1f%H"])
     entries = []
     for line in result.stdout.splitlines():
         parts = line.split("\x1f")
         if len(parts) >= 2:
-            entries.append(
-                {"ref": parts[0], "subject": parts[1], "age": parts[2] if len(parts) > 2 else ""}
-            )
+            entries.append({
+                "ref": parts[0],
+                "subject": parts[1],
+                "age": parts[2] if len(parts) > 2 else "",
+                "sha": parts[3] if len(parts) > 3 else "",
+            })
     return entries
 
 

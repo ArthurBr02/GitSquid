@@ -152,7 +152,7 @@ function renderSidebar() {
       label: stash.subject,
       meta: stash.age,
       icon: "≡",
-      onclick: () => worktreeAction("stash-apply", null, { ref: stash.ref }),
+      onclick: () => { if (stash.sha) openCommit(stash.sha); },
       menu: () => stashMenu(stash),
     })),
   }));

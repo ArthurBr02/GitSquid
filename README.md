@@ -115,7 +115,8 @@ refreshes itself when you come back to the window, so what your editor did shows
 revert it, rebase the current branch onto it, reset the branch to it (soft / mixed / hard), copy
 its SHA or its message. On a branch: check out, merge or squash merge, rebase onto it, branch from
 it, rename, push, delete. On a remote branch: check out as a tracking branch, fetch, delete on the
-remote. On a tag: check out, push, delete. On a stash: apply, pop, branch from it, drop. On a file:
+remote. On a tag: check out, push, delete. On a stash: show what it holds, apply, pop, branch from
+it, drop. On a file:
 stage, unstage, discard, ignore, file history, blame, copy path — and, in a commit, restore that
 version into the working tree. On a recorded change: apply, run tests, revert.
 

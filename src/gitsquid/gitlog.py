@@ -117,6 +117,15 @@ def _require_sha(sha: str) -> str:
     return sha
 
 
+def _commit_of(repo: Path, sha: str) -> str:
+    """An annotated tag and a stash are objects too: read the commit they stand for."""
+    _require_sha(sha)
+    resolved = run(repo, ["rev-parse", "--verify", f"{sha}^{{commit}}"]).stdout.strip()
+    if not resolved:
+        raise ValueError("No such commit.")
+    return resolved
+
+
 def _merge_view(parents: list[str]) -> list[str]:
     """A merge shows no diff at all by default; a reader wants what it brought in."""
     return ["-m", "--first-parent"] if len(parents) > 1 else []
@@ -186,7 +195,7 @@ def search(repo: Path, query: str, *, limit: int = 100) -> list[Commit]:
 
 def commit_detail(repo: Path, sha: str) -> dict:
     """Everything the panel shows except the patches, which are fetched one file at a time."""
-    _require_sha(sha)
+    sha = _commit_of(repo, sha)
     header = run(repo, ["show", "-s", f"--format={SEP.join(['%H', '%P', '%an', '%ae', '%aI', '%s', '%D'])}", sha])
     # Never str.strip() a record: Python counts the separator itself as whitespace, so a
     # commit that carries no ref would lose its last field.
@@ -217,7 +226,7 @@ def commit_patch(
     ignore_whitespace: bool = False, context: int = 3,
 ) -> dict:
     """The patch of one file in a commit — or of the whole commit when no path is given."""
-    _require_sha(sha)
+    sha = _commit_of(repo, sha)
     parents = run(repo, ["show", "-s", "--format=%P", sha]).stdout.split()
     args = ["show", *_merge_view(parents), "--no-color", "--format=", "-M",
             f"-U{max(0, min(context, 100))}", sha]
@@ -264,15 +273,18 @@ def tags(repo: Path) -> list[dict[str, str]]:
     result = run(
         repo,
         ["for-each-ref", "--sort=-creatordate",
-         "--format=%(refname:short)%1f%(objectname:short)%1f%(contents:subject)", "refs/tags"],
+         "--format=%(refname:short)%1f%(objectname:short)%1f%(contents:subject)%1f%(*objectname:short)",
+         "refs/tags"],
     )
     found = []
     for line in result.stdout.strip().splitlines():
         parts = line.split("\x1f")
         if parts and parts[0]:
+            dereferenced = parts[3] if len(parts) > 3 else ""
             found.append({
                 "name": parts[0],
-                "sha": parts[1] if len(parts) > 1 else "",
+                # An annotated tag is its own object; what the interface wants is the commit.
+                "sha": dereferenced or (parts[1] if len(parts) > 1 else ""),
                 "subject": parts[2] if len(parts) > 2 else "",
             })
     return found
@@ -305,7 +317,7 @@ def blame(repo: Path, path: str, *, rev: str = "") -> dict:
     if not is_safe_relative_path(path):
         raise ValueError("Refusing a path outside the repository.")
     if rev:
-        _require_sha(rev)
+        rev = _commit_of(repo, rev)
     args = ["blame", "--porcelain", "-w"]
     if rev:
         args.append(rev)
