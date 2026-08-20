@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import contextmanager
+from typing import Iterator
 from pathlib import Path
 
 import typer
@@ -33,6 +35,16 @@ def _settings(repo: Path | None = None) -> Settings:
     except ConfigError as exc:
         ui.fail(str(exc))
         raise typer.Exit(EXIT_INVALID) from exc
+
+
+@contextmanager
+def _connection(settings: Settings, *, create: bool = False) -> Iterator[sqlite3.Connection]:
+    """One command, one connection, closed whatever the command does with it."""
+    conn = _open(settings, create=create)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def _open(settings: Settings, *, create: bool = False) -> sqlite3.Connection:
@@ -71,15 +83,14 @@ def init(
     """Create the local database for this repository."""
     settings = _settings(repo)
     existed = settings.initialized
-    conn = _open(settings, create=True)
-    EventLog(conn).record("init", f"database ready at {settings.db_path}")
-    conn.close()
+    with _connection(settings, create=True) as conn:
+        EventLog(conn).record("init", f"database ready at {settings.db_path}")
 
-    if existed:
-        ui.ok(f"Database already present at {settings.db_path}")
-    else:
-        ui.ok(f"Created {settings.db_path}")
-    ui.info("Next: `gitsquid index` to build the local index, then `gitsquid doctor`.")
+        if existed:
+            ui.ok(f"Database already present at {settings.db_path}")
+        else:
+            ui.ok(f"Created {settings.db_path}")
+        ui.info("Next: `gitsquid index` to build the local index, then `gitsquid doctor`.")
 
 
 @app.command()
@@ -102,15 +113,13 @@ def doctor(
         ),
     ]
     if settings.initialized:
-        conn = _open(settings)
-        summary = indexer.index_summary(conn)
-        changes = ChangeRepo(conn)
-        rows += [
-            ("Indexed files", f"{summary['files']:,} ({summary['chunks']:,} chunks)"),
-            ("Recorded changes", f"{changes.count():,}"),
-            ("Sample records", f"{sampledata.count(conn):,}"),
-        ]
-        conn.close()
+        with _connection(settings) as conn:
+            summary = indexer.index_summary(conn)
+            rows += [
+                ("Indexed files", f"{summary['files']:,} ({summary['chunks']:,} chunks)"),
+                ("Recorded changes", f"{ChangeRepo(conn).count():,}"),
+                ("Sample records", f"{sampledata.count(conn):,}"),
+            ]
     ui.kv(rows, title="GitSquid status")
 
     if not settings.model_available:
@@ -128,28 +137,27 @@ def index(
 ) -> None:
     """Index the repository into the local database."""
     settings = _settings(repo)
-    conn = _open(settings)
-    with ui.working(f"Indexing {settings.repo}…"):
-        stats = indexer.index_repo(
-            conn, settings.repo, max_file_bytes=settings.max_file_bytes, force=force
+    with _connection(settings) as conn:
+        with ui.working(f"Indexing {settings.repo}…"):
+            stats = indexer.index_repo(
+                conn, settings.repo, max_file_bytes=settings.max_file_bytes, force=force
+            )
+        EventLog(conn).record(
+            "indexed", f"{stats.files_indexed} indexed, {stats.chunks} chunks, {stats.files_removed} removed"
         )
-    EventLog(conn).record(
-        "indexed", f"{stats.files_indexed} indexed, {stats.chunks} chunks, {stats.files_removed} removed"
-    )
-    summary = indexer.index_summary(conn)
-    conn.close()
+        summary = indexer.index_summary(conn)
 
-    if summary["files"] == 0:
-        ui.empty(
-            "Nothing indexable found.",
-            hint="gitsquid skips binaries, credential files, and anything over GITSQUID_MAX_FILE_BYTES.",
+        if summary["files"] == 0:
+            ui.empty(
+                "Nothing indexable found.",
+                hint="gitsquid skips binaries, credential files, and anything over GITSQUID_MAX_FILE_BYTES.",
+            )
+            return
+        ui.ok(
+            f"{plural(stats.files_indexed, 'file')} indexed, {stats.files_unchanged} unchanged, "
+            f"{stats.files_skipped} skipped, {stats.files_removed} removed."
         )
-        return
-    ui.ok(
-        f"{plural(stats.files_indexed, 'file')} indexed, {stats.files_unchanged} unchanged, "
-        f"{stats.files_skipped} skipped, {stats.files_removed} removed."
-    )
-    ui.info(f"Index now holds {summary['files']:,} files and {summary['chunks']:,} chunks.")
+        ui.info(f"Index now holds {summary['files']:,} files and {summary['chunks']:,} chunks.")
 
 
 @app.command()
@@ -160,24 +168,23 @@ def search(
 ) -> None:
     """Search the index (this is exactly the retrieval a proposal gets)."""
     settings = _settings(repo)
-    conn = _open(settings)
-    try:
-        cleaned = clean_text_input(query, max_len=500, field="query")
-    except ValueError as exc:
-        ui.invalid("Invalid search query", [str(exc)])
-        raise typer.Exit(EXIT_INVALID) from exc
+    with _connection(settings) as conn:
+        try:
+            cleaned = clean_text_input(query, max_len=500, field="query")
+        except ValueError as exc:
+            ui.invalid("Invalid search query", [str(exc)])
+            raise typer.Exit(EXIT_INVALID) from exc
 
-    hits = search_chunks(conn, cleaned, limit=limit)
-    conn.close()
-    if not hits:
-        ui.empty(
-            f"No indexed chunk matches {cleaned!r}.",
-            hint="run `gitsquid index` if the repository changed, or try different words.",
-        )
-        return
-    for hit in hits:
-        ui.panel(hit.label, hit.content.rstrip("\n"))
-    ui.ok(f"{len(hits)} match(es).")
+        hits = search_chunks(conn, cleaned, limit=limit)
+        if not hits:
+            ui.empty(
+                f"No indexed chunk matches {cleaned!r}.",
+                hint="run `gitsquid index` if the repository changed, or try different words.",
+            )
+            return
+        for hit in hits:
+            ui.panel(hit.label, hit.content.rstrip("\n"))
+        ui.ok(f"{len(hits)} match(es).")
 
 
 def _backend(settings: Settings, patch_file: Path | None) -> ProposalBackend:
@@ -227,34 +234,32 @@ def propose(
 ) -> None:
     """Propose a diff for a task and record it. Nothing is written to your files."""
     settings = _settings(repo)
-    conn = _open(settings)
-    service = ChangeService(conn, settings)
-    backend = _backend(settings, patch_file)
+    with _connection(settings) as conn:
+        service = ChangeService(conn, settings)
+        backend = _backend(settings, patch_file)
 
-    try:
-        cleaned = clean_text_input(task, max_len=2000, field="task")
-    except ValueError as exc:
-        ui.invalid("Invalid task", [str(exc)])
-        raise typer.Exit(EXIT_INVALID) from exc
+        try:
+            cleaned = clean_text_input(task, max_len=2000, field="task")
+        except ValueError as exc:
+            ui.invalid("Invalid task", [str(exc)])
+            raise typer.Exit(EXIT_INVALID) from exc
 
-    try:
-        with ui.working(f"Proposing a diff with {backend.name}…"):
-            outcome = service.propose(cleaned, backend, pinned=list(file or []))
-    except (ProposalError, ValidationError) as exc:
-        ui.fail(str(exc))
-        conn.close()
-        raise typer.Exit(EXIT_FAILURE) from exc
+        try:
+            with ui.working(f"Proposing a diff with {backend.name}…"):
+                outcome = service.propose(cleaned, backend, pinned=list(file or []))
+        except (ProposalError, ValidationError) as exc:
+            ui.fail(str(exc))
+            raise typer.Exit(EXIT_FAILURE) from exc
 
-    _render_proposal(outcome, plain=plain)
-    if outcome.applies_cleanly:
-        ui.ok(f"Recorded as change #{outcome.change.id} and it applies cleanly.")
-        ui.info(f"Next: `gitsquid apply {outcome.change.id}` then `gitsquid test {outcome.change.id}`.")
-    else:
-        ui.invalid(
-            f"Recorded as change #{outcome.change.id}, but git refuses it:",
-            [outcome.check_message],
-        )
-    conn.close()
+        _render_proposal(outcome, plain=plain)
+        if outcome.applies_cleanly:
+            ui.ok(f"Recorded as change #{outcome.change.id} and it applies cleanly.")
+            ui.info(f"Next: `gitsquid apply {outcome.change.id}` then `gitsquid test {outcome.change.id}`.")
+        else:
+            ui.invalid(
+                f"Recorded as change #{outcome.change.id}, but git refuses it:",
+                [outcome.check_message],
+            )
 
 
 @app.command()
@@ -265,40 +270,39 @@ def show(
 ) -> None:
     """Show one recorded change with its diff, test runs, and audit trail."""
     settings = _settings(repo)
-    conn = _open(settings)
-    change = _require_change(ChangeRepo(conn), change_id)
-    added, removed = diffs.stats(change.diff)
+    with _connection(settings) as conn:
+        change = _require_change(ChangeRepo(conn), change_id)
+        added, removed = diffs.stats(change.diff)
 
-    ui.kv(
-        [
-            ("Change", f"#{change.id}{'  (SAMPLE)' if change.is_sample else ''}"),
-            ("Status", str(change.status)),
-            ("Task", change.task),
-            ("Source", str(change.source)),
-            ("Model", change.model or "none"),
-            ("Files", ", ".join(change.files_touched) or "none"),
-            ("Lines", f"+{added} / -{removed}"),
-            ("Digest", change.short_sha),
-            ("Base commit", (change.base_commit or "unknown")[:12]),
-            ("Created", change.created_at),
-            ("Applied", change.applied_at or "never"),
-        ],
-        title=f"Change #{change.id}",
-    )
-    if change.rationale:
-        ui.panel("Rationale", change.rationale)
-    ui.show_diff(change.diff, plain=plain)
-
-    for run in TestRunRepo(conn).for_change(change.id):
-        label = "passed" if run.passed else f"failed (exit {run.exit_code})"
-        ui.panel(f"Test run {run.created_at} — {label}", run.output_tail or "(no output)")
-    trail = EventLog(conn).for_change(change.id)
-    if trail:
-        ui.panel(
-            "Audit trail",
-            "\n".join(f"{event.created_at}  {event.kind}: {event.message}" for event in trail),
+        ui.kv(
+            [
+                ("Change", f"#{change.id}{'  (SAMPLE)' if change.is_sample else ''}"),
+                ("Status", str(change.status)),
+                ("Task", change.task),
+                ("Source", str(change.source)),
+                ("Model", change.model or "none"),
+                ("Files", ", ".join(change.files_touched) or "none"),
+                ("Lines", f"+{added} / -{removed}"),
+                ("Digest", change.short_sha),
+                ("Base commit", (change.base_commit or "unknown")[:12]),
+                ("Created", change.created_at),
+                ("Applied", change.applied_at or "never"),
+            ],
+            title=f"Change #{change.id}",
         )
-    conn.close()
+        if change.rationale:
+            ui.panel("Rationale", change.rationale)
+        ui.show_diff(change.diff, plain=plain)
+
+        for run in TestRunRepo(conn).for_change(change.id):
+            label = "passed" if run.passed else f"failed (exit {run.exit_code})"
+            ui.panel(f"Test run {run.created_at} — {label}", run.output_tail or "(no output)")
+        trail = EventLog(conn).for_change(change.id)
+        if trail:
+            ui.panel(
+                "Audit trail",
+                "\n".join(f"{event.created_at}  {event.kind}: {event.message}" for event in trail),
+            )
 
 
 @app.command()
@@ -309,37 +313,33 @@ def apply(
 ) -> None:
     """Apply a recorded diff to the working tree."""
     settings = _settings(repo)
-    conn = _open(settings)
-    service = ChangeService(conn, settings)
-    change = _require_change(service.changes, change_id)
+    with _connection(settings) as conn:
+        service = ChangeService(conn, settings)
+        change = _require_change(service.changes, change_id)
 
-    if change.is_sample:
-        ui.invalid(
-            f"Change #{change.id} is sample data.",
-            ["Sample records describe a fictional repository and are never applied."],
-        )
-        conn.close()
-        raise typer.Exit(EXIT_INVALID)
+        if change.is_sample:
+            ui.invalid(
+                f"Change #{change.id} is sample data.",
+                ["Sample records describe a fictional repository and are never applied."],
+            )
+            raise typer.Exit(EXIT_INVALID)
 
-    if diffs.working_tree_dirty(settings.repo):
-        ui.warn("The working tree has uncommitted changes; `gitsquid revert` may not undo cleanly.")
-    if not _confirm(
-        f"Apply change #{change.id} to {', '.join(change.files_touched) or 'the working tree'}?",
-        assume_yes=yes,
-    ):
-        ui.info("Nothing applied.")
-        conn.close()
-        raise typer.Exit(0)
+        if diffs.working_tree_dirty(settings.repo):
+            ui.warn("The working tree has uncommitted changes; `gitsquid revert` may not undo cleanly.")
+        if not _confirm(
+            f"Apply change #{change.id} to {', '.join(change.files_touched) or 'the working tree'}?",
+            assume_yes=yes,
+        ):
+            ui.info("Nothing applied.")
+            raise typer.Exit(0)
 
-    try:
-        service.apply(change)
-    except WorkflowError as exc:
-        ui.fail(str(exc))
-        conn.close()
-        raise typer.Exit(EXIT_FAILURE) from exc
-    ui.ok(f"Change #{change.id} applied to {settings.repo}.")
-    ui.info(f"Next: `gitsquid test {change.id}` to verify, or `gitsquid revert {change.id}` to undo.")
-    conn.close()
+        try:
+            service.apply(change)
+        except WorkflowError as exc:
+            ui.fail(str(exc))
+            raise typer.Exit(EXIT_FAILURE) from exc
+        ui.ok(f"Change #{change.id} applied to {settings.repo}.")
+        ui.info(f"Next: `gitsquid test {change.id}` to verify, or `gitsquid revert {change.id}` to undo.")
 
 
 @app.command()
@@ -350,29 +350,27 @@ def test(
 ) -> None:
     """Run the verification command and record the result against a change."""
     settings = _settings(repo)
-    conn = _open(settings)
-    service = ChangeService(conn, settings)
+    with _connection(settings) as conn:
+        service = ChangeService(conn, settings)
 
-    change = (
-        _require_change(service.changes, change_id) if change_id is not None else service.changes.latest()
-    )
-    if change is None:
-        ui.empty("No change recorded yet.", hint="run `gitsquid propose \"...\"` first.")
-        conn.close()
-        raise typer.Exit(EXIT_INVALID)
+        change = (
+            _require_change(service.changes, change_id) if change_id is not None else service.changes.latest()
+        )
+        if change is None:
+            ui.empty("No change recorded yet.", hint="run `gitsquid propose \"...\"` first.")
+            raise typer.Exit(EXIT_INVALID)
 
-    used = command or settings.test_command
-    with ui.working(f"Running `{used}`…"):
-        run = service.verify(change, command=used)
-    conn.close()
+        used = command or settings.test_command
+        with ui.working(f"Running `{used}`…"):
+            run = service.verify(change, command=used)
 
-    if run.passed:
-        ui.ok(f"`{used}` passed in {run.duration_ms}ms — change #{change.id} is verified.")
-        return
-    ui.fail(f"`{used}` exited {run.exit_code} after {run.duration_ms}ms.")
-    ui.panel("Output tail", run.output_tail or "(no output)")
-    ui.info(f"Undo with `gitsquid revert {change.id}`.")
-    raise typer.Exit(EXIT_FAILURE)
+        if run.passed:
+            ui.ok(f"`{used}` passed in {run.duration_ms}ms — change #{change.id} is verified.")
+            return
+        ui.fail(f"`{used}` exited {run.exit_code} after {run.duration_ms}ms.")
+        ui.panel("Output tail", run.output_tail or "(no output)")
+        ui.info(f"Undo with `gitsquid revert {change.id}`.")
+        raise typer.Exit(EXIT_FAILURE)
 
 
 @app.command()
@@ -383,22 +381,19 @@ def revert(
 ) -> None:
     """Reverse an applied diff and record the reversal."""
     settings = _settings(repo)
-    conn = _open(settings)
-    service = ChangeService(conn, settings)
-    change = _require_change(service.changes, change_id)
+    with _connection(settings) as conn:
+        service = ChangeService(conn, settings)
+        change = _require_change(service.changes, change_id)
 
-    if not _confirm(f"Reverse change #{change.id} in the working tree?", assume_yes=yes):
-        ui.info("Nothing reverted.")
-        conn.close()
-        raise typer.Exit(0)
-    try:
-        service.revert(change)
-    except WorkflowError as exc:
-        ui.fail(str(exc))
-        conn.close()
-        raise typer.Exit(EXIT_FAILURE) from exc
-    ui.ok(f"Change #{change.id} reversed.")
-    conn.close()
+        if not _confirm(f"Reverse change #{change.id} in the working tree?", assume_yes=yes):
+            ui.info("Nothing reverted.")
+            raise typer.Exit(0)
+        try:
+            service.revert(change)
+        except WorkflowError as exc:
+            ui.fail(str(exc))
+            raise typer.Exit(EXIT_FAILURE) from exc
+        ui.ok(f"Change #{change.id} reversed.")
 
 
 @app.command(name="log")
@@ -409,28 +404,26 @@ def log_command(
 ) -> None:
     """List recorded changes, newest first."""
     settings = _settings(repo)
-    conn = _open(settings)
-    filter_status = None
-    if status:
-        try:
-            filter_status = ChangeStatus(status.lower())
-        except ValueError as exc:
-            ui.invalid(
-                f"Unknown status {status!r}.",
-                [f"Use one of: {', '.join(s.value for s in ChangeStatus)}"],
-            )
-            conn.close()
-            raise typer.Exit(EXIT_INVALID) from exc
+    with _connection(settings) as conn:
+        filter_status = None
+        if status:
+            try:
+                filter_status = ChangeStatus(status.lower())
+            except ValueError as exc:
+                ui.invalid(
+                    f"Unknown status {status!r}.",
+                    [f"Use one of: {', '.join(s.value for s in ChangeStatus)}"],
+                )
+                raise typer.Exit(EXIT_INVALID) from exc
 
-    changes = ChangeRepo(conn).list(limit=limit, status=filter_status)
-    conn.close()
-    if not changes:
-        ui.empty(
-            "No change recorded yet.",
-            hint='gitsquid propose "describe the change you want" — or `gitsquid sample load` to see the shape of the data.',
-        )
-        return
-    ui.changes_table(changes)
+        changes = ChangeRepo(conn).list(limit=limit, status=filter_status)
+        if not changes:
+            ui.empty(
+                "No change recorded yet.",
+                hint='gitsquid propose "describe the change you want" — or `gitsquid sample load` to see the shape of the data.',
+            )
+            return
+        ui.changes_table(changes)
 
 
 @app.command(name="run")
@@ -448,73 +441,65 @@ def run_command(
 ) -> None:
     """The core loop: index, propose, apply, test, record — in one command."""
     settings = _settings(repo)
-    conn = _open(settings)
-    service = ChangeService(conn, settings)
-    backend = _backend(settings, patch_file)
+    with _connection(settings) as conn:
+        service = ChangeService(conn, settings)
+        backend = _backend(settings, patch_file)
 
-    try:
-        cleaned = clean_text_input(task, max_len=2000, field="task")
-    except ValueError as exc:
-        ui.invalid("Invalid task", [str(exc)])
-        conn.close()
-        raise typer.Exit(EXIT_INVALID) from exc
-
-    with ui.working("Refreshing the index…"):
-        stats = indexer.index_repo(conn, settings.repo, max_file_bytes=settings.max_file_bytes)
-    ui.ok(f"Index up to date ({stats.files_indexed} re-indexed, {stats.files_unchanged} unchanged).")
-
-    try:
-        with ui.working(f"Proposing a diff with {backend.name}…"):
-            outcome = service.propose(cleaned, backend, pinned=list(file or []))
-    except (ProposalError, ValidationError) as exc:
-        ui.fail(str(exc))
-        conn.close()
-        raise typer.Exit(EXIT_FAILURE) from exc
-
-    _render_proposal(outcome, plain=plain)
-    change = outcome.change
-    if not outcome.applies_cleanly:
-        ui.invalid(f"Change #{change.id} recorded, but git refuses it:", [outcome.check_message])
-        conn.close()
-        raise typer.Exit(EXIT_FAILURE)
-
-    if not _confirm(f"Apply change #{change.id}?", assume_yes=yes):
-        ui.info(f"Stopped before applying. The proposal is kept as change #{change.id}.")
-        conn.close()
-        raise typer.Exit(0)
-
-    try:
-        service.apply(change)
-    except WorkflowError as exc:
-        ui.fail(str(exc))
-        conn.close()
-        raise typer.Exit(EXIT_FAILURE) from exc
-    ui.ok(f"Applied change #{change.id}.")
-
-    if skip_tests:
-        ui.warn(f"Tests skipped. Verify later with `gitsquid test {change.id}`.")
-        conn.close()
-        return
-
-    with ui.working(f"Running `{settings.test_command}`…"):
-        run = service.verify(change)
-    if run.passed:
-        ui.ok(f"Tests passed in {run.duration_ms}ms — change #{change.id} is verified.")
-        conn.close()
-        return
-
-    ui.fail(f"Tests exited {run.exit_code}.")
-    ui.panel("Output tail", run.output_tail or "(no output)")
-    if revert_on_failure:
         try:
-            service.revert(change)
-            ui.ok(f"Change #{change.id} reversed automatically.")
+            cleaned = clean_text_input(task, max_len=2000, field="task")
+        except ValueError as exc:
+            ui.invalid("Invalid task", [str(exc)])
+            raise typer.Exit(EXIT_INVALID) from exc
+
+        with ui.working("Refreshing the index…"):
+            stats = indexer.index_repo(conn, settings.repo, max_file_bytes=settings.max_file_bytes)
+        ui.ok(f"Index up to date ({stats.files_indexed} re-indexed, {stats.files_unchanged} unchanged).")
+
+        try:
+            with ui.working(f"Proposing a diff with {backend.name}…"):
+                outcome = service.propose(cleaned, backend, pinned=list(file or []))
+        except (ProposalError, ValidationError) as exc:
+            ui.fail(str(exc))
+            raise typer.Exit(EXIT_FAILURE) from exc
+
+        _render_proposal(outcome, plain=plain)
+        change = outcome.change
+        if not outcome.applies_cleanly:
+            ui.invalid(f"Change #{change.id} recorded, but git refuses it:", [outcome.check_message])
+            raise typer.Exit(EXIT_FAILURE)
+
+        if not _confirm(f"Apply change #{change.id}?", assume_yes=yes):
+            ui.info(f"Stopped before applying. The proposal is kept as change #{change.id}.")
+            raise typer.Exit(0)
+
+        try:
+            service.apply(change)
         except WorkflowError as exc:
             ui.fail(str(exc))
-    else:
-        ui.info(f"The change is still applied. Undo with `gitsquid revert {change.id}`.")
-    conn.close()
-    raise typer.Exit(EXIT_FAILURE)
+            raise typer.Exit(EXIT_FAILURE) from exc
+        ui.ok(f"Applied change #{change.id}.")
+
+        if skip_tests:
+            ui.warn(f"Tests skipped. Verify later with `gitsquid test {change.id}`.")
+            return
+
+        with ui.working(f"Running `{settings.test_command}`…"):
+            run = service.verify(change)
+        if run.passed:
+            ui.ok(f"Tests passed in {run.duration_ms}ms — change #{change.id} is verified.")
+            return
+
+        ui.fail(f"Tests exited {run.exit_code}.")
+        ui.panel("Output tail", run.output_tail or "(no output)")
+        if revert_on_failure:
+            try:
+                service.revert(change)
+                ui.ok(f"Change #{change.id} reversed automatically.")
+            except WorkflowError as exc:
+                ui.fail(str(exc))
+        else:
+            ui.info(f"The change is still applied. Undo with `gitsquid revert {change.id}`.")
+        raise typer.Exit(EXIT_FAILURE)
 
 
 def _resolve_ui_repo(repo: Path | None) -> Settings:
@@ -583,13 +568,12 @@ def export_command(
 ) -> None:
     """Export every recorded change, test run, and event to portable JSON."""
     settings = _settings(repo)
-    conn = _open(settings)
-    count = portability.export_to_file(conn, path, repo_name=settings.repo.name)
-    conn.close()
-    if count == 0:
-        ui.empty(f"Wrote {path}, but there was nothing to export yet.")
-        return
-    ui.ok(f"Exported {plural(count, 'change')} to {path}.")
+    with _connection(settings) as conn:
+        count = portability.export_to_file(conn, path, repo_name=settings.repo.name)
+        if count == 0:
+            ui.empty(f"Wrote {path}, but there was nothing to export yet.")
+            return
+        ui.ok(f"Exported {plural(count, 'change')} to {path}.")
 
 
 @app.command(name="import")
@@ -599,49 +583,44 @@ def import_command(
 ) -> None:
     """Import changes from a GitSquid export, skipping ones already recorded."""
     settings = _settings(repo)
-    conn = _open(settings)
-    try:
-        stats = portability.import_from_file(conn, path)
-    except portability.ImportError_ as exc:
-        ui.invalid("Import rejected", [str(exc)])
-        conn.close()
-        raise typer.Exit(EXIT_INVALID) from exc
-    conn.close()
-    ui.ok(
-        f"Imported {plural(stats.changes, 'change')}, {plural(stats.test_runs, 'test run')}; "
-        f"{stats.skipped} already present."
-    )
+    with _connection(settings) as conn:
+        try:
+            stats = portability.import_from_file(conn, path)
+        except portability.ImportError_ as exc:
+            ui.invalid("Import rejected", [str(exc)])
+            raise typer.Exit(EXIT_INVALID) from exc
+        ui.ok(
+            f"Imported {plural(stats.changes, 'change')}, {plural(stats.test_runs, 'test run')}; "
+            f"{stats.skipped} already present."
+        )
 
 
 @sample_app.command("load")
 def sample_load(repo: Path = typer.Option(None, "--repo")) -> None:
     """Insert clearly labelled sample records so empty screens have something to show."""
     settings = _settings(repo)
-    conn = _open(settings)
-    if sampledata.count(conn) > 0:
-        ui.warn("Sample records are already loaded. `gitsquid sample clear` removes them first.")
-        conn.close()
-        raise typer.Exit(0)
-    created = sampledata.load(conn)
-    conn.close()
-    ui.ok(f"Loaded {plural(created, 'sample change')}, each flagged SAMPLE.")
-    ui.info("Remove them at any time with `gitsquid sample clear`.")
+    with _connection(settings) as conn:
+        if sampledata.count(conn) > 0:
+            ui.warn("Sample records are already loaded. `gitsquid sample clear` removes them first.")
+            raise typer.Exit(0)
+        created = sampledata.load(conn)
+        ui.ok(f"Loaded {plural(created, 'sample change')}, each flagged SAMPLE.")
+        ui.info("Remove them at any time with `gitsquid sample clear`.")
 
 
 @sample_app.command("clear")
 def sample_clear(repo: Path = typer.Option(None, "--repo")) -> None:
     """Delete every sample record. Your own changes are untouched."""
     settings = _settings(repo)
-    conn = _open(settings)
-    removed = sampledata.clear(conn)
-    conn.close()
-    if not removed["changes"]:
-        ui.empty("No sample record to delete.")
-        return
-    ui.ok(
-        f"Deleted {plural(removed['changes'], 'sample change')}, {plural(removed['test_runs'], 'test run')}, "
-        f"{removed['events']} event(s)."
-    )
+    with _connection(settings) as conn:
+        removed = sampledata.clear(conn)
+        if not removed["changes"]:
+            ui.empty("No sample record to delete.")
+            return
+        ui.ok(
+            f"Deleted {plural(removed['changes'], 'sample change')}, {plural(removed['test_runs'], 'test run')}, "
+            f"{removed['events']} event(s)."
+        )
 
 
 if __name__ == "__main__":
