@@ -105,10 +105,7 @@ function rowContent(row) {
 
   side.append(
     el("span", { class: "relative when", title: new Date(row.when).toLocaleString(), text: relativeTime(row.when) }),
-    el("button", {
-      type: "button", class: "row-menu", "aria-label": "Actions for this row",
-      onclick: (event) => { event.stopPropagation(); select(row.key); Menu.show(event, rowMenu(row)); },
-    }, ["⋯"]),
+    menuButton("this row", () => rowMenu(row), { before: () => select(row.key) }),
   );
   return [main, side];
 }

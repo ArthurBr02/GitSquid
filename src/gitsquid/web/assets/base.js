@@ -28,6 +28,17 @@ const fill = (node, ...children) => {
 };
 const clear = (node) => { while (node.firstChild) node.firstChild.remove(); return node; };
 
+function menuButton(label, items, { before = null } = {}) {
+  return el("button", {
+    type: "button", class: "row-menu", "aria-label": `Actions for ${label}`,
+    onclick: (event) => {
+      event.stopPropagation();
+      if (before) before();
+      Menu.show(event, items());
+    },
+  }, ["⋯"]);
+}
+
 function relativeTime(iso) {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return iso.slice(0, 10);

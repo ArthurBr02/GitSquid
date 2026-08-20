@@ -23,10 +23,7 @@ function treeRow({ id, label, meta, metaTitle, icon, sub, current, className = "
       sub ? el("span", { class: "sub" }, sub) : null,
     ]),
     meta ? el("span", { class: `tree-meta ${metaTitle && /[↑↓]/.test(meta) ? "drift" : ""}`, title: metaTitle, text: meta }) : null,
-    menu ? el("button", {
-      type: "button", class: "row-menu", "aria-label": `Actions for ${label}`,
-      onclick: (event) => { event.stopPropagation(); Menu.show(event, menu()); },
-    }, ["⋯"]) : null,
+    menu ? menuButton(label, menu) : null,
   ]);
   return menu ? Menu.attach(node, menu) : node;
 }

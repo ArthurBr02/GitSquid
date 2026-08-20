@@ -82,10 +82,7 @@ function fileGroup({ label, files, staged, conflicted }) {
         onclick: (event) => { event.stopPropagation(); worktreeAction(staged ? "unstage" : "stage", [entry.path]); },
         text: conflicted ? "Resolved" : staged ? "Unstage" : "Stage",
       }),
-      el("button", {
-        type: "button", class: "row-menu", "aria-label": `Actions for ${entry.path}`,
-        onclick: (event) => { event.stopPropagation(); Menu.show(event, fileMenu(entry.source, staged)); },
-      }, ["⋯"]),
+      menuButton(entry.path, () => fileMenu(entry.source, staged)),
     ],
     menu: () => fileMenu(entry.source, staged),
   })));
