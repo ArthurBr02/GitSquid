@@ -543,7 +543,7 @@ function recall(key, fallback) {
 }
 
 /* A row is a row: branches, tags, stashes and the working tree all use this one. */
-function treeRow({ id, label, meta, icon, sub, current, className = "", onclick, menu }) {
+function treeRow({ id, label, meta, metaTitle, icon, sub, current, className = "", onclick, menu }) {
   const node = el("div", {
     id,
     class: `tree-row ${className}`,
@@ -560,7 +560,7 @@ function treeRow({ id, label, meta, icon, sub, current, className = "", onclick,
       label,
       sub ? el("span", { class: "sub" }, sub) : null,
     ]),
-    meta ? el("span", { class: "tree-meta", text: meta }) : null,
+    meta ? el("span", { class: `tree-meta ${metaTitle && /[↑↓]/.test(meta) ? "drift" : ""}`, title: metaTitle, text: meta }) : null,
     menu ? el("button", {
       type: "button", class: "row-menu", "aria-label": `Actions for ${label}`,
       onclick: (event) => { event.stopPropagation(); Menu.show(event, menu()); },
@@ -622,9 +622,14 @@ function renderSidebar() {
     empty: "No branch yet.",
     rows: repo.branches.map((branch) => {
       const isCurrent = branch.name === repo.branch;
+      const drift = [branch.ahead ? `↑${branch.ahead}` : "", branch.behind ? `↓${branch.behind}` : ""]
+        .filter(Boolean).join(" ");
       return treeRow({
         label: branch.name,
-        meta: branch.sha,
+        meta: drift || branch.sha,
+        metaTitle: drift
+          ? `${branch.ahead} ahead of, ${branch.behind} behind ${branch.upstream}`
+          : (branch.upstream ? `up to date with ${branch.upstream}` : "no upstream"),
         icon: isCurrent ? "●" : "○",
         className: isCurrent ? "current" : "",
         onclick: () => { if (!isCurrent) switchBranch(branch.name); },
@@ -727,7 +732,21 @@ function renderChrome() {
   const model = clear($("model-state"));
   model.append(
     el("span", { class: `dot ${config.model_available ? "on" : "off"}`, "aria-hidden": "true" }),
-    el("span", { text: config.model_available ? config.model : "no API key" }),
+    el("button", {
+      type: "button", class: "model-chip",
+      onclick: (event) => Menu.show(event, config.model_available ? [
+        { header: "Model" },
+        { label: config.model, hint: `effort ${config.effort}` },
+        { label: "Where it comes from", hint: ".env" },
+      ] : [
+        { header: "Degraded mode" },
+        { label: "No ANTHROPIC_API_KEY in this repository" },
+        { label: "Everything but a model proposal works" },
+        { label: "Copy the line to add to .env",
+          run: () => copy("ANTHROPIC_API_KEY=sk-ant-…", "The .env line") },
+      ]),
+      text: config.model_available ? config.model : "no API key",
+    }),
   );
   model.title = config.model_available
     ? `Proposals go to ${config.model} (effort ${config.effort}).`
@@ -1203,6 +1222,9 @@ function renderWorktreeDetail() {
     placeholder: "Commit message — describe what this commit does",
     "aria-label": "Commit message",
     oninput: (event) => { state.commitMessage = event.target.value; },
+    onkeydown: (event) => {
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); commitStaged(); }
+    },
   });
   message.value = state.commitMessage;
 

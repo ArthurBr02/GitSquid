@@ -730,3 +730,10 @@ body.resizing { cursor: col-resize; user-select: none; }
 
 .viewer-body.wrap .diff .tx { white-space: pre-wrap; word-break: break-word; }
 .viewer-body.wrap .diff div { min-width: 0; }
+
+.tree-meta.drift { color: var(--accent); }
+.model-chip {
+  background: transparent; border: 0; padding: 0;
+  color: inherit; font: inherit; cursor: pointer;
+}
+.model-chip:hover { color: var(--text-dim); text-decoration: underline; }

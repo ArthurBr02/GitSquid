@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,19 +33,34 @@ def current_branch(repo: Path) -> str:
     return name if result.returncode == 0 and name else "(no branch)"
 
 
-def branches(repo: Path) -> list[dict[str, str]]:
+_TRACK = re.compile(r"(ahead|behind) (\d+)")
+
+
+def branches(repo: Path) -> list[dict]:
+    """Local branches, newest first, each with how far it has drifted from its upstream."""
     result = run(
-        repo, ["for-each-ref", "--sort=-committerdate", "--format=%(refname:short)%1f%(objectname:short)%1f%(upstream:short)", "refs/heads"]
+        repo,
+        ["for-each-ref", "--sort=-committerdate",
+         "--format=%(refname:short)%1f%(objectname:short)%1f%(upstream:short)%1f%(upstream:track)",
+         "refs/heads"],
     )
     if result.returncode != 0:
         return []
     found = []
-    for line in result.stdout.strip().splitlines():
+    for line in result.stdout.rstrip("\n").splitlines():
         parts = line.split("\x1f")
-        if parts and parts[0]:
-            found.append(
-                {"name": parts[0], "sha": parts[1] if len(parts) > 1 else "", "upstream": parts[2] if len(parts) > 2 else ""}
-            )
+        if not parts or not parts[0]:
+            continue
+        track = dict.fromkeys(("ahead", "behind"), 0)
+        for direction, count in _TRACK.findall(parts[3] if len(parts) > 3 else ""):
+            track[direction] = int(count)
+        found.append({
+            "name": parts[0],
+            "sha": parts[1] if len(parts) > 1 else "",
+            "upstream": parts[2] if len(parts) > 2 else "",
+            "ahead": track["ahead"],
+            "behind": track["behind"],
+        })
     return found
 
 
