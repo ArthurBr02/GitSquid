@@ -173,33 +173,6 @@ function openDialog(modalId, focusId, errorId) {
   if (focusId) $(focusId).focus();
 }
 
-function reindex() {
-  return quiet(withBusy("Re-indexing the repository…", async () => {
-    toast("ok", (await post("/api/index")).message);
-    await refresh();
-  }));
-}
-
-function exportHistory() {
-  return quiet(withBusy("Exporting…", async () => {
-    const response = await fetch("/api/export");
-    if (!response.ok) throw new Error("Export failed.");
-    const url = URL.createObjectURL(await response.blob());
-    const link = el("a", { href: url, download: "gitsquid-export.json" });
-    document.body.append(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-    toast("ok", "Export downloaded.");
-  }));
-}
-
-function samplesAction(action) {
-  return quiet(withBusy(action === "load" ? "Loading sample records…" : "Deleting sample records…", async () => {
-    toast("ok", (await post(`/api/samples/${action}`)).message);
-    await refresh(false);
-  }));
-}
 
 async function applyPicked(target) {
   const view = state.view;

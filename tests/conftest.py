@@ -5,12 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from gitsquid.config import Settings
-from gitsquid.db import open_db
-from gitsquid.llm import Proposal, ProposalRequest
-from gitsquid.models import ChangeSource
-from gitsquid.workflow import ChangeService
-
 CALC_PY = '''"""Tiny module the tests patch."""
 
 
@@ -44,17 +38,9 @@ def git(repo: Path, *args: str, stdin: str | None = None) -> subprocess.Complete
 
 
 @pytest.fixture(autouse=True)
-def isolated_env(monkeypatch):
-    """No .env file and no ambient API key ever reaches the tests."""
-    monkeypatch.setattr("gitsquid.config.load_dotenv", lambda *a, **k: False)
-    settings = (
-        "MODEL", "EFFORT", "MAX_CONTEXT_CHARS", "MAX_FILE_BYTES", "TEST_COMMAND", "TEST_TIMEOUT",
-    )
-    names = ["ANTHROPIC_API_KEY"] + [
-        prefix + name for prefix in ("GITSQUID_", "GITIA_") for name in settings
-    ]
-    for name in names:
-        monkeypatch.delenv(name, raising=False)
+def isolated_config(monkeypatch, tmp_path):
+    """The repository list a test writes never reaches the one you use."""
+    monkeypatch.setenv("GITSQUID_CONFIG_DIR", str(tmp_path / "config"))
 
 
 @pytest.fixture
@@ -73,32 +59,12 @@ def repo(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def settings(repo: Path) -> Settings:
-    state = repo / ".gitsquid"
-    return Settings(
-        repo=repo,
-        state_dir=state,
-        db_path=state / "gitsquid.db",
-        model="claude-opus-5",
-        effort="high",
-        max_context_chars=20_000,
-        max_file_bytes=200_000,
-        test_command="python -m pytest -q",
-        test_timeout=120,
-        api_key=None,
-    )
-
-
-@pytest.fixture
-def conn(settings: Settings):
-    connection = open_db(settings.db_path)
-    yield connection
-    connection.close()
-
-
-@pytest.fixture
-def service(conn, settings: Settings) -> ChangeService:
-    return ChangeService(conn, settings)
+def repo_with_remote(repo: Path, tmp_path: Path) -> Path:
+    """A repository whose `origin` is a bare clone on disk — no network in the tests."""
+    git(tmp_path, "init", "--bare", "-q", "origin.git")
+    git(repo, "remote", "add", "origin", str(tmp_path / "origin.git"))
+    git(repo, "push", "-q", "-u", "origin", "main")
+    return repo
 
 
 def make_patch(repo: Path, rel: str, new_text: str) -> str:
@@ -119,42 +85,6 @@ def make_patch(repo: Path, rel: str, new_text: str) -> str:
     return diff
 
 
-class StubBackend:
-    """A ProposalBackend that returns a canned diff — the loop under test, no network."""
-
-    name = "stub"
-
-    def __init__(self, diff: str, rationale: str = "Because the tests say so.") -> None:
-        self.diff = diff
-        self.rationale = rationale
-        self.requests: list[ProposalRequest] = []
-
-    def propose(self, request: ProposalRequest) -> Proposal:
-        self.requests.append(request)
-        return Proposal(
-            diff=self.diff,
-            rationale=self.rationale,
-            source=ChangeSource.MODEL,
-            model="stub-model",
-            input_tokens=1234,
-            output_tokens=56,
-        )
-
-
 @pytest.fixture
 def patch_add_multiply(repo: Path) -> str:
     return make_patch(repo, "calc.py", CALC_PY + '\n\ndef multiply(a, b):\n    return a * b\n')
-
-
-@pytest.fixture
-def patch_breaks_tests(repo: Path) -> str:
-    return make_patch(repo, "calc.py", CALC_PY.replace("return a + b", "return a - b"))
-
-
-@pytest.fixture
-def repo_with_remote(repo: Path, tmp_path: Path) -> Path:
-    """A repository whose `origin` is a bare clone on disk — no network in the tests."""
-    git(tmp_path, "init", "--bare", "-q", "origin.git")
-    git(repo, "remote", "add", "origin", str(tmp_path / "origin.git"))
-    git(repo, "push", "-q", "-u", "origin", "main")
-    return repo

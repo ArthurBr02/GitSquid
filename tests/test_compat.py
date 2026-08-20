@@ -1,4 +1,4 @@
-"""What still works after the rename from gitia to GitSquid, and what the interface reopens."""
+"""What survived the rename from gitia to GitSquid, and which repository the interface opens."""
 
 from __future__ import annotations
 
@@ -6,8 +6,7 @@ import json
 
 import pytest
 
-from gitsquid import cli, portability, registry
-from gitsquid.config import ConfigError, load_settings
+from gitsquid import cli, registry
 from tests.conftest import git
 
 
@@ -28,53 +27,7 @@ def make_repo(root):
     return root
 
 
-class TestRenamedState:
-    def test_a_fresh_repository_uses_the_new_directory(self, repo):
-        settings = load_settings(repo)
-        assert settings.state_dir == repo / ".gitsquid"
-        assert settings.db_path.name == "gitsquid.db"
-
-    def test_a_repository_indexed_before_the_rename_keeps_its_database(self, repo):
-        legacy = repo / ".gitia"
-        legacy.mkdir()
-        (legacy / "gitia.db").write_bytes(b"")
-
-        settings = load_settings(repo)
-        assert settings.state_dir == legacy
-        assert settings.db_path == legacy / "gitia.db"
-
-    def test_the_new_directory_wins_once_it_exists(self, repo):
-        (repo / ".gitia").mkdir()
-        (repo / ".gitia" / "gitia.db").write_bytes(b"")
-        (repo / ".gitsquid").mkdir()
-
-        assert load_settings(repo).state_dir == repo / ".gitsquid"
-
-
-class TestRenamedEnvironment:
-    def test_the_new_names_are_read(self, monkeypatch, repo):
-        monkeypatch.setenv("GITSQUID_MODEL", "claude-sonnet-5")
-        assert load_settings(repo).model == "claude-sonnet-5"
-
-    def test_the_old_names_still_work(self, monkeypatch, repo):
-        monkeypatch.setenv("GITIA_MODEL", "claude-haiku-4-5-20251001")
-        monkeypatch.setenv("GITIA_TEST_COMMAND", "make check")
-        settings = load_settings(repo)
-        assert settings.model == "claude-haiku-4-5-20251001"
-        assert settings.test_command == "make check"
-
-    def test_the_new_name_wins_over_the_old_one(self, monkeypatch, repo):
-        monkeypatch.setenv("GITIA_EFFORT", "low")
-        monkeypatch.setenv("GITSQUID_EFFORT", "max")
-        assert load_settings(repo).effort == "max"
-
-    def test_an_invalid_value_names_the_current_variable(self, monkeypatch, repo):
-        monkeypatch.setenv("GITIA_MAX_FILE_BYTES", "beaucoup")
-        with pytest.raises(ConfigError, match="GITSQUID_MAX_FILE_BYTES"):
-            load_settings(repo)
-
-
-class TestRenamedRegistry:
+class TestTheRepositoryList:
     def test_the_list_written_before_the_rename_is_read(self, config_home, tmp_path):
         older = make_repo(tmp_path / "ancien")
         legacy = config_home.parent / "gitia"
@@ -89,50 +42,35 @@ class TestRenamedRegistry:
         registry.add(make_repo(tmp_path / "neuf"))
         assert (config_home / "repos.json").exists()
 
-
-class TestRenamedExport:
-    def test_a_gitia_export_can_still_be_imported(self, conn, tmp_path, settings, service, patch_add_multiply):
-        from tests.conftest import StubBackend
-
-        service.propose("Add a multiply helper", StubBackend(patch_add_multiply))
-        document = portability.export_payload(conn, repo_name="workshop")
-        document["format"] = "gitia-export"
-        target = tmp_path / "ancien-export.json"
-        target.write_text(json.dumps(document), encoding="utf-8")
-
-        stats = portability.import_from_file(conn, target)
-        assert stats.skipped == 1
-
-    def test_a_foreign_document_is_still_refused(self, conn, tmp_path):
-        target = tmp_path / "etranger.json"
-        target.write_text(json.dumps({"format": "autre-chose"}), encoding="utf-8")
-        with pytest.raises(portability.ImportError_, match="gitsquid-export"):
-            portability.import_from_file(conn, target)
+    def test_the_old_environment_variable_still_points_at_it(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("GITSQUID_CONFIG_DIR", raising=False)
+        monkeypatch.setenv("GITIA_CONFIG_DIR", str(tmp_path / "ancienne-config"))
+        assert registry.config_dir() == tmp_path / "ancienne-config" / "gitsquid"
 
 
 class TestTheRepositoryTheInterfaceOpens:
-    def test_the_last_repository_opened_wins_over_the_current_folder(self, config_home, tmp_path, monkeypatch):
+    def test_the_last_one_opened_wins_over_the_current_folder(self, config_home, tmp_path, monkeypatch):
         first = make_repo(tmp_path / "premier")
         last = make_repo(tmp_path / "dernier")
         registry.add(first)
         registry.add(last)
         monkeypatch.chdir(first)
 
-        assert cli._resolve_ui_repo(None).repo == last
+        assert cli._resolve_repo(None) == last
 
-    def test_an_explicit_repository_wins_over_the_memory(self, config_home, tmp_path, monkeypatch):
+    def test_an_explicit_repository_wins_over_the_memory(self, config_home, tmp_path):
         first = make_repo(tmp_path / "premier")
         registry.add(make_repo(tmp_path / "dernier"))
-        assert cli._resolve_ui_repo(first).repo == first
+        assert cli._resolve_repo(first) == first
 
-    def test_a_repository_that_moved_away_is_skipped(self, config_home, tmp_path, monkeypatch):
+    def test_a_repository_that_moved_away_is_skipped(self, config_home, tmp_path):
         kept = make_repo(tmp_path / "garde")
         registry.add(kept)
         registry.add(make_repo(tmp_path / "disparu"))
         (tmp_path / "disparu" / ".git").rename(tmp_path / "disparu" / ".git-gone")
 
-        assert cli._resolve_ui_repo(None).repo == kept
+        assert cli._resolve_repo(None) == kept
 
     def test_without_any_memory_the_current_folder_is_used(self, config_home, repo, monkeypatch):
         monkeypatch.chdir(repo)
-        assert cli._resolve_ui_repo(None).repo == repo
+        assert cli._resolve_repo(None) == repo

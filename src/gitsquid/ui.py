@@ -11,7 +11,6 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from .models import Change, ChangeStatus
 
 # Every state carries a text token as well as a colour, so nothing depends on colour alone.
 STATE_TOKENS = {
@@ -24,13 +23,6 @@ STATE_TOKENS = {
     "invalid": ("[invalid]", "bold red"),
 }
 
-STATUS_TOKENS = {
-    ChangeStatus.PROPOSED: ("proposed", "cyan"),
-    ChangeStatus.APPLIED: ("applied", "yellow"),
-    ChangeStatus.VERIFIED: ("verified", "green"),
-    ChangeStatus.FAILED: ("failed", "red"),
-    ChangeStatus.REVERTED: ("reverted", "magenta"),
-}
 
 
 def _color_enabled() -> bool:
@@ -101,34 +93,6 @@ def working(message: str) -> Iterator[None]:
     else:
         target.print(Text(token, style=style), Text(message))
         yield
-
-
-def status_label(status: ChangeStatus) -> Text:
-    label, style = STATUS_TOKENS[status]
-    return Text(label, style=style)
-
-
-def changes_table(changes: list[Change], *, title: str = "Recorded changes") -> None:
-    table = Table(title=title, header_style="bold", show_lines=False, title_justify="left")
-    table.add_column("ID", justify="right", no_wrap=True)
-    table.add_column("Status", no_wrap=True)
-    table.add_column("Source", no_wrap=True)
-    table.add_column("Files", justify="right", no_wrap=True)
-    table.add_column("Created (UTC)", no_wrap=True)
-    table.add_column("Task", overflow="fold")
-    for change in changes:
-        task = change.task if len(change.task) <= 60 else change.task[:57] + "…"
-        if change.is_sample:
-            task = f"SAMPLE — {task}"
-        table.add_row(
-            str(change.id),
-            status_label(change.status),
-            str(change.source),
-            str(len(change.files_touched)),
-            change.created_at.replace("+00:00", "Z"),
-            task,
-        )
-    console().print(table)
 
 
 def show_diff(diff: str, *, plain: bool = False) -> None:

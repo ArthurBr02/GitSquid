@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import STATE_DIRNAME, ConfigError, find_repo_root
+from .config import ConfigError, find_repo_root
 
 MAX_REPOS = 50
 
@@ -43,16 +43,11 @@ class KnownRepo:
     def exists(self) -> bool:
         return (self.path / ".git").exists()
 
-    @property
-    def initialized(self) -> bool:
-        return (self.path / STATE_DIRNAME / "gitsquid.db").exists()
-
     def as_dict(self) -> dict:
         return {
             "path": str(self.path),
             "name": self.name,
             "exists": self.exists,
-            "initialized": self.initialized,
         }
 
 

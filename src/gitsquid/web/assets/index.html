@@ -12,7 +12,7 @@
 
 <header class="topbar">
   <div class="brand">
-    <span class="mark" aria-hidden="true"></span>
+    <img class="mark" src="/assets/logo.png" alt="GitSquid logo" aria-hidden="true">
     <span class="brand-name">GitSquid</span>
   </div>
   <button type="button" class="repo-chip" id="repo-chip" aria-haspopup="dialog"
@@ -32,14 +32,10 @@
         Push <span class="badge" id="badge-ahead" hidden></span>
       </button>
     </span>
-    <button type="button" class="btn" id="btn-propose" title="Ask for a change (N)">
-      <span data-icon="plus" data-size="13"></span> New change
-    </button>
     <button type="button" class="icon-btn" id="btn-more" aria-haspopup="menu"
       aria-label="More actions" title="More actions"><span data-icon="dots"></span></button>
   </div>
 
-  <div class="model-state" id="model-state" role="status" aria-live="polite"></div>
 </header>
 
 <div class="op-bar" id="op-bar" role="alert" hidden></div>
@@ -53,7 +49,7 @@
   <section class="graph-pane" id="graph" aria-label="Change and commit graph" tabindex="-1">
     <div class="pane-head" id="pane-head">
       <button type="button" class="filter-chip" id="btn-filter" aria-haspopup="menu">
-        <span id="filter-label">Everything</span>
+        <span id="filter-label">Every branch</span>
         <span data-icon="chevron-down" data-size="12"></span>
       </button>
       <label class="search-label" for="search">
@@ -95,50 +91,8 @@
 <footer class="statusbar">
   <span id="status-text" role="status" aria-live="polite">Ready.</span>
   <span class="spacer"></span>
-  <span class="index-stat" id="index-stat"></span>
   <span class="db-path" id="db-path"></span>
 </footer>
-
-<dialog class="modal" id="propose-modal" aria-labelledby="propose-title">
-  <form method="dialog" id="propose-form">
-    <h2 id="propose-title">Propose a change</h2>
-    <p class="hint" id="propose-hint"></p>
-
-    <label class="field">
-      <span class="field-label">Task <em>required</em></span>
-      <textarea id="propose-task" rows="3" required maxlength="2000"
-        placeholder="Describe the change, e.g. “make period_start timezone-aware”"></textarea>
-    </label>
-
-    <label class="field">
-      <span class="field-label">Unified diff <em id="patch-requirement">optional</em></span>
-      <textarea id="propose-patch" rows="10" spellcheck="false"
-        placeholder="Leave empty to ask the model. Paste a diff to skip the model entirely."></textarea>
-    </label>
-
-    <p class="form-error" id="propose-error" role="alert" hidden></p>
-    <menu class="modal-actions">
-      <button type="button" class="btn ghost" id="propose-cancel">Cancel</button>
-      <button type="submit" class="btn primary" id="propose-submit">Propose</button>
-    </menu>
-  </form>
-</dialog>
-
-<dialog class="modal" id="import-modal" aria-labelledby="import-title">
-  <form method="dialog" id="import-form">
-    <h2 id="import-title">Import a GitSquid export</h2>
-    <p class="hint">Paste the contents of a <code>gitsquid export</code> JSON file. Changes already recorded are skipped.</p>
-    <label class="field">
-      <span class="field-label">Export document <em>required</em></span>
-      <textarea id="import-doc" rows="12" spellcheck="false" required placeholder='{ "format": "gitsquid-export", ... }'></textarea>
-    </label>
-    <p class="form-error" id="import-error" role="alert" hidden></p>
-    <menu class="modal-actions">
-      <button type="button" class="btn ghost" id="import-cancel">Cancel</button>
-      <button type="submit" class="btn primary">Import</button>
-    </menu>
-  </form>
-</dialog>
 
 <dialog class="modal small" id="help-modal" aria-labelledby="help-title">
   <h2 id="help-title">Keyboard</h2>
@@ -149,10 +103,9 @@
     <dt><kbd>Enter</kbd></dt><dd>Focus the detail panel</dd>
     <dt><kbd>Shift</kbd>+<kbd>F10</kbd></dt><dd>Menu of the selected row</dd>
     <dt><kbd>/</kbd></dt><dd>Search</dd>
-    <dt><kbd>N</kbd></dt><dd>New change</dd>
     <dt><kbd>W</kbd></dt><dd>Uncommitted changes</dd>
     <dt><kbd>B</kbd> <kbd>T</kbd> <kbd>S</kbd></dt><dd>Branch · tag · stash</dd>
-    <dt><kbd>R</kbd> <kbd>I</kbd></dt><dd>Refresh · re-index</dd>
+    <dt><kbd>R</kbd></dt><dd>Refresh</dd>
     <dt><kbd>H</kbd></dt><dd>Go to where you are</dd>
     <dt>Double click</dt><dd>Move HEAD to a commit</dd>
     <dt><kbd>O</kbd></dt><dd>Repositories</dd>

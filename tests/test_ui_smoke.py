@@ -4,13 +4,10 @@ without them."""
 
 from __future__ import annotations
 
-import sys
 import threading
 
 import pytest
 
-from gitsquid.db import open_db
-from gitsquid.indexer import index_repo
 from gitsquid.web import UIServer
 from tests.conftest import git
 
@@ -29,20 +26,14 @@ def browser():
 
 
 @pytest.fixture
-def running(settings, monkeypatch, tmp_path):
-    monkeypatch.setenv("GITSQUID_TEST_COMMAND", f"{sys.executable} -m pytest -q")
+def running(repo, monkeypatch, tmp_path):
     monkeypatch.setenv("GITSQUID_CONFIG_DIR", str(tmp_path / "config"))
-    repo = settings.repo
     (repo / "extra.py").write_text("VALEUR = 1\n", encoding="utf-8")
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "un second commit")
     (repo / "calc.py").write_text("def add(a, b):\n    return a * b\n", encoding="utf-8")
 
-    conn = open_db(settings.db_path)
-    index_repo(conn, repo, max_file_bytes=settings.max_file_bytes)
-    conn.close()
-
-    server = UIServer(settings, port=0)
+    server = UIServer(repo, port=0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield server
@@ -71,12 +62,13 @@ class TestTheGraph:
         assert page.locator(".section").count() == 5
         assert "workshop" in page.inner_text("#repo-chip")
 
-    def test_a_filter_narrows_the_list(self, page):
+    def test_the_scope_can_be_narrowed_to_this_branch(self, page):
         page.click("#btn-filter")
         page.wait_for_selector(".context-menu")
-        page.locator(".menu-item", has_text="Commits").click()
-        page.wait_for_timeout(200)
-        assert "2 of" in page.inner_text("#row-count")
+        page.locator(".menu-item", has_text="This branch only").click()
+        page.wait_for_timeout(600)
+        assert "This branch" in page.inner_text("#btn-filter")
+        assert page.locator("#rows li").count() >= 2
 
 
 class TestACommit:

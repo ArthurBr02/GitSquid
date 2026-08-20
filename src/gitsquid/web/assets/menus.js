@@ -41,20 +41,6 @@ function commitMenu(row) {
   ];
 }
 
-function changeMenu(row) {
-  const applicable = ["proposed", "failed"].includes(row.status);
-  const testable = ["applied", "verified", "failed"].includes(row.status);
-  return [
-    { header: `Change #${row.id}` },
-    { label: "Apply to the working tree", disabled: row.is_sample || !applicable, run: () => changeAction(row.id, "apply") },
-    { label: "Run tests", disabled: !testable, run: () => changeAction(row.id, "test") },
-    { label: "Revert", danger: true, disabled: row.is_sample || !testable,
-      run: () => { if (confirm(`Reverse change #${row.id} in the working tree?`)) changeAction(row.id, "revert"); } },
-    "-",
-    { label: "Copy the task", run: () => copy(row.task, "Task") },
-  ];
-}
-
 function wipMenu() {
   const files = state.worktree.files;
   const paths = files.map((file) => file.path);
@@ -171,5 +157,5 @@ function fileMenu(entry, staged) {
 
 function rowMenu(row) {
   if (row.kind === "wip") return wipMenu();
-  return row.kind === "change" ? changeMenu(row) : commitMenu(row);
+  return commitMenu(row);
 }

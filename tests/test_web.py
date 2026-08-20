@@ -3,28 +3,20 @@
 from __future__ import annotations
 
 import json
-import sys
 import threading
 import urllib.error
 import urllib.request
 
 import pytest
 
-from gitsquid.db import open_db
-from gitsquid.indexer import index_repo
 from gitsquid.web import UIServer
-from tests.conftest import git, make_patch
+from tests.conftest import git
 
 
 @pytest.fixture
-def server(settings, monkeypatch, tmp_path):
-    monkeypatch.setenv("GITSQUID_TEST_COMMAND", f"{sys.executable} -m pytest -q")
+def server(repo, monkeypatch, tmp_path):
     monkeypatch.setenv("GITSQUID_CONFIG_DIR", str(tmp_path / "config"))
-    conn = open_db(settings.db_path)
-    index_repo(conn, settings.repo, max_file_bytes=settings.max_file_bytes)
-    conn.close()
-
-    instance = UIServer(settings, port=0)
+    instance = UIServer(repo, port=0)
     thread = threading.Thread(target=instance.serve_forever, daemon=True)
     thread.start()
     yield instance
@@ -76,13 +68,12 @@ class TestGuards:
 
 
 class TestReadApi:
-    def test_state_reports_repository_and_degraded_mode(self, server, settings):
+    def test_state_reports_the_repository(self, server, repo):
         status, payload = call(server, "/api/state")
         assert status == 200
         assert payload["repo"]["name"] == "workshop"
-        assert payload["config"]["model_available"] is False
-        assert payload["index"]["files"] == 3
-        assert payload["counts"]["proposed"] == 0
+        assert payload["repo"]["branch"] == "main"
+        assert payload["config"]["git_version"]
 
     def test_graph_returns_the_commits_the_layout_needs(self, server):
         status, payload = call(server, "/api/graph")
@@ -92,7 +83,6 @@ class TestReadApi:
         assert commit["subject"] == "initial"
         assert commit["parents"] == []
         assert commit["short"] == commit["sha"][:7]
-        assert payload["changes"] == []
 
     def test_commit_detail_lists_files(self, server):
         sha = call(server, "/api/graph")[1]["commits"][0]["sha"]
@@ -104,9 +94,6 @@ class TestReadApi:
         status, payload = call(server, "/api/commits/not-a-sha")
         assert status == 400
         assert "commit id" in payload["error"]
-
-    def test_missing_change_is_reported(self, server):
-        assert call(server, "/api/changes/77")[0] == 404
 
 
 class TestWorktreeOverHttp:
@@ -134,19 +121,6 @@ class TestWorktreeOverHttp:
 
         graph = call(server, "/api/graph")[1]
         assert graph["commits"][0]["subject"] == "Edit the calculation"
-
-    def test_a_commit_is_recorded_in_the_audit_trail(self, server, repo, settings):
-        from gitsquid.db import open_db
-        from gitsquid.models import EventLog
-
-        (repo / "calc.py").write_text("edited\n", encoding="utf-8")
-        call(server, "/api/worktree/stage", method="POST", body={"paths": ["calc.py"]})
-        call(server, "/api/worktree/commit", method="POST", body={"message": "Tracked commit"})
-
-        conn = open_db(settings.db_path)
-        kinds = [event.kind for event in EventLog(conn).recent(5)]
-        conn.close()
-        assert "committed" in kinds
 
     def test_committing_nothing_is_refused(self, server):
         status, payload = call(server, "/api/worktree/commit", method="POST", body={"message": "x"})
@@ -189,86 +163,6 @@ class TestWorktreeOverHttp:
         assert call(server, "/api/worktree/explode", method="POST", body={})[0] == 404
 
 
-class TestLoopOverHttp:
-    def test_propose_apply_test_revert(self, server, repo, settings):
-        patch = make_patch(repo, "calc.py", (repo / "calc.py").read_text() + "\n\ndef multiply(a, b):\n    return a * b\n")
-
-        status, payload = call(
-            server, "/api/propose", method="POST",
-            body={"task": "Add a multiply helper", "patch": patch},
-        )
-        assert status == 200 and payload["applies_cleanly"]
-        change_id = payload["change_id"]
-        assert "multiply" not in (repo / "calc.py").read_text()
-
-        assert call(server, f"/api/changes/{change_id}/apply", method="POST", body={})[0] == 200
-        assert "def multiply" in (repo / "calc.py").read_text()
-
-        status, payload = call(server, f"/api/changes/{change_id}/test", method="POST", body={})
-        assert status == 200 and payload["passed"] is True
-
-        status, payload = call(server, f"/api/changes/{change_id}")
-        assert payload["status"] == "verified"
-        assert [event["kind"] for event in payload["events"]] == ["proposed", "applied", "tested"]
-
-        assert call(server, f"/api/changes/{change_id}/revert", method="POST", body={})[0] == 200
-        assert "multiply" not in (repo / "calc.py").read_text()
-
-    def test_propose_without_a_key_or_patch_explains_degraded_mode(self, server):
-        status, payload = call(server, "/api/propose", method="POST", body={"task": "do something"})
-        assert status == 400
-        assert "ANTHROPIC_API_KEY" in payload["error"]
-
-    def test_an_empty_task_is_rejected(self, server):
-        status, payload = call(server, "/api/propose", method="POST", body={"task": "  ", "patch": "x"})
-        assert status == 400
-        assert "task" in payload["error"]
-
-    def test_an_unsafe_patch_is_rejected(self, server):
-        hostile = "--- a/../../etc/passwd\n+++ b/../../etc/passwd\n@@ -1 +1 @@\n-a\n+b\n"
-        status, payload = call(
-            server, "/api/propose", method="POST", body={"task": "escape", "patch": hostile}
-        )
-        assert status == 400
-        assert "Rejected patch" in payload["error"]
-
-    def test_samples_load_are_guarded_and_clear(self, server):
-        assert call(server, "/api/samples/load", method="POST", body={})[0] == 200
-        status, payload = call(server, "/api/samples/load", method="POST", body={})
-        assert status == 400 and "already loaded" in payload["error"]
-
-        status, payload = call(server, "/api/changes/1/apply", method="POST", body={})
-        assert status == 400 and "Sample records" in payload["error"]
-
-        assert call(server, "/api/samples/clear", method="POST", body={})[0] == 200
-        assert call(server, "/api/state")[1]["samples"] == 0
-
-    def test_export_then_import_round_trip(self, server, repo):
-        patch = make_patch(repo, "calc.py", (repo / "calc.py").read_text() + "\n\nVALUE = 1\n")
-        call(server, "/api/propose", method="POST", body={"task": "Add a constant", "patch": patch})
-
-        request = urllib.request.Request(f"http://127.0.0.1:{server.port}/api/export")
-        with urllib.request.urlopen(request, timeout=30) as response:
-            document = json.loads(response.read())
-        assert document["format"] == "gitsquid-export"
-        assert len(document["changes"]) == 1
-
-        status, payload = call(server, "/api/import", method="POST", body={"document": document})
-        assert status == 200
-        assert "1 already present" in payload["message"]
-
-    def test_import_rejects_a_foreign_document(self, server):
-        status, payload = call(server, "/api/import", method="POST", body={"document": {"format": "nope"}})
-        assert status == 400
-        assert "gitsquid-export" in payload["error"]
-
-    def test_reindex_reports_progress(self, server, repo):
-        (repo / "extra.py").write_text("VALUE = 2\n", encoding="utf-8")
-        status, payload = call(server, "/api/index", method="POST", body={})
-        assert status == 200
-        assert payload["index"]["files"] == 4
-
-
 class TestMultipleRepositories:
     def test_the_active_repository_is_registered_on_start(self, server, repo):
         status, payload = call(server, "/api/repos")
@@ -292,22 +186,7 @@ class TestMultipleRepositories:
 
         assert call(server, "/api/state")[1]["repo"]["name"] == "atelier"
         assert call(server, "/api/graph")[1]["commits"][0]["subject"] == "depart"
-        assert (other / ".gitsquid" / "gitsquid.db").exists()
         assert {entry["name"] for entry in call(server, "/api/repos")[1]["repos"]} == {"workshop", "atelier"}
-
-    def test_each_repository_keeps_its_own_history(self, server, repo, tmp_path, patch_add_multiply):
-        call(server, "/api/propose", method="POST",
-             body={"task": "Add a multiply helper", "patch": patch_add_multiply})
-        assert len(call(server, "/api/graph")[1]["changes"]) == 1
-
-        other = tmp_path / "autre"
-        other.mkdir()
-        git(other, "init", "-q", "-b", "main")
-        call(server, "/api/repos/open", method="POST", body={"path": str(other)})
-        assert call(server, "/api/graph")[1]["changes"] == []
-
-        call(server, "/api/repos/open", method="POST", body={"path": str(repo)})
-        assert len(call(server, "/api/graph")[1]["changes"]) == 1
 
     def test_opening_a_directory_that_is_not_a_repository_is_refused(self, server, tmp_path):
         plain = tmp_path / "pas-un-depot"
@@ -454,18 +333,6 @@ class TestHistoryOverHttp:
         ]:
             status, payload = call(server, f"/api/worktree/{action}", method="POST", body=body)
             assert status == 400 and "commit id" in payload["error"]
-
-    def test_a_history_action_lands_in_the_audit_trail(self, server, repo, settings):
-        from gitsquid.db import open_db
-        from gitsquid.models import EventLog
-
-        sha = commit_over_http(server, repo, "trace.py", "X = 1\n", "trace")
-        call(server, "/api/worktree/revert-commit", method="POST", body={"sha": sha})
-
-        conn = open_db(settings.db_path)
-        kinds = [event.kind for event in EventLog(conn).recent(5)]
-        conn.close()
-        assert "revert-commit" in kinds
 
     def test_a_conflict_is_reported_as_a_pending_operation_and_can_be_aborted(self, server, repo):
         commit_over_http(server, repo, "partage.py", "VALEUR = 0\n", "partage")

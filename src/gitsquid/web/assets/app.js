@@ -2,24 +2,14 @@
 
 const ROW_H = 42;
 
-const STATUS_COLORS = {
-  proposed: "#58a6ff",
-  applied: "#f0b429",
-  verified: "#5ed69a",
-  failed: "#ff6b6b",
-  reverted: "#c792ea",
-};
-
 const state = {
   data: null,
   worktree: { files: [], staged: 0, unstaged: 0, conflicted: 0 },
   repos: { active: "", repos: [] },
   rows: [],
-  filter: "all",
   query: "",
   selected: null,
   commitMessage: "",
-  counts: {},
   view: null,
   painting: null,
   render: 0,
@@ -37,18 +27,9 @@ const state = {
 
 // Sorting commits by date would put a parent above its child and run the lanes off the list.
 function buildRows() {
-  const { commits, changes } = state.data.graph;
-  const pending = changes
-    .map((change) => ({ ...change, kind: "change", key: `c${change.id}`, when: change.created_at }))
-    .sort((a, b) => (a.when < b.when ? 1 : a.when > b.when ? -1 : 0));
-
-  const rows = [];
-  let next = 0;
-  for (const commit of commits) {
-    while (next < pending.length && pending[next].when > commit.date) rows.push(pending[next++]);
-    rows.push({ ...commit, kind: "commit", key: `g${commit.sha}`, when: commit.date });
-  }
-  rows.push(...pending.slice(next));
+  const rows = state.data.graph.commits.map((commit) => ({
+    ...commit, kind: "commit", key: `g${commit.sha}`, when: commit.date,
+  }));
   if (state.worktree.files.length) {
     rows.unshift({ kind: "wip", key: "wip", when: new Date().toISOString() });
   }
@@ -56,16 +37,9 @@ function buildRows() {
 }
 
 function matches(row) {
-  if (row.kind === "wip") return state.filter === "all" && !state.query;
-  if (state.filter !== "all") {
-    if (state.filter === "commits") return row.kind === "commit";
-    if (row.kind !== "change" || row.status !== state.filter) return false;
-  }
+  if (row.kind === "wip") return !state.query;
   if (!state.query) return true;
-  const haystack = row.kind === "change"
-    ? `${row.task} ${row.files.join(" ")} ${row.source}`
-    : `${row.subject} ${row.author} ${row.short}`;
-  return haystack.toLowerCase().includes(state.query);
+  return `${row.subject} ${row.author} ${row.short}`.toLowerCase().includes(state.query);
 }
 
 function rowContent(row) {
@@ -77,12 +51,6 @@ function rowContent(row) {
       el("span", { class: "row-title", text: "Uncommitted changes" }),
       el("span", { class: "tag applied", text: "WIP" }));
     side.append(el("span", { text: plural(state.worktree.files.length, "file") }));
-  } else if (row.kind === "change") {
-    fill(main,
-      el("span", { class: `tag ${row.status}`, text: row.status }),
-      el("span", { class: "row-title", text: row.task }),
-      row.is_sample ? el("span", { class: "tag sample", text: "sample" }) : null);
-    side.append(el("span", { text: `#${row.id}` }), el("span", { text: plural(row.files.length, "file") }));
   } else {
     main.append(el("span", {
       class: "row-title", title: isHead(row) ? "You are here" : undefined,
@@ -127,7 +95,7 @@ function rowElement(row) {
 function depthBar() {
   const more = clear($("rows-more"));
   const { commits, total_commits: total } = state.data.graph;
-  const deeper = total > commits.length && !state.query && state.filter === "all";
+  const deeper = total > commits.length && !state.query;
   more.hidden = !deeper;
   if (!deeper) return;
   more.append(
@@ -147,8 +115,8 @@ function emptyNote(visible) {
   note.textContent = state.search
     ? `No commit in this repository mentions “${state.search.query}”.`
     : (state.rows.length
-      ? `Nothing matches ${state.query ? `“${state.query}”` : `the ${FILTER_LABELS[state.filter].toLowerCase()} filter`}.`
-      : "No commit and no recorded change yet. Commit something, or use “New change” to propose your first diff.");
+      ? `Nothing matches “${state.query}”.`
+      : "No commit yet. Stage something and make the first one.");
 }
 
 function renderRows() {
@@ -156,7 +124,7 @@ function renderRows() {
   const list = clear($("rows"));
   const visible = state.rows.filter(matches);
   // A filtered list has holes in it, so the lanes would join rows that are not adjacent.
-  const flat = Boolean(state.query) || (state.filter !== "all" && state.filter !== "commits");
+  const flat = Boolean(state.query);
   const laid = Graph.layout(visible, { flat });
   const { gap, width } = Graph.measure(laid.columns, Math.min(Math.round((wrap.clientWidth || 700) / 3), 280));
 
@@ -183,7 +151,7 @@ function paintGraph() {
     rowHeight: ROW_H,
     gap,
     width,
-    pendingColor: (row) => (row.kind === "wip" ? "#f0b429" : STATUS_COLORS[row.status] || "#58a6ff"),
+    pendingColor: () => "#e8ae33",
     isHead,
     isSelected: (row) => row.key === state.selected,
   });
@@ -219,7 +187,7 @@ function select(key) {
   if (key === "wip") { renderWorktreeDetail(); return; }
   const row = state.rows.find((item) => item.key === key);
   if (!row) return;
-  const render = row.kind === "change" ? renderChangeDetail(row.id) : renderCommitDetail(row.sha);
+  const render = renderCommitDetail(row.sha);
   render.catch((error) => {
     clear($("detail")).append(el("div", { class: "empty-state" }, [
       el("h2", { text: "Could not load this item" }), el("p", { text: error.message }),
@@ -311,65 +279,6 @@ function showFormError(node, message) {
   node.scrollIntoView({ block: "nearest" });
 }
 
-function openPropose() {
-  const available = state.data.state.config.model_available;
-  $("propose-hint").textContent = available
-    ? `The task and the retrieved excerpts go to ${state.data.state.config.model}. Paste a diff below to skip the model.`
-    : "No API key configured, so a diff is required. GitSquid validates, applies, tests and records it exactly the same way.";
-  $("patch-requirement").textContent = available ? "optional" : "required";
-  $("propose-patch").placeholder = available
-    ? "Leave empty to ask the model. Paste a diff to skip the model entirely."
-    : "Paste the unified diff to record — git apply must accept it.";
-  $("propose-error").hidden = true;
-  $("propose-modal").showModal();
-  $("propose-task").focus();
-}
-
-async function submitPropose(event) {
-  event.preventDefault();
-  const task = $("propose-task").value.trim();
-  const patch = $("propose-patch").value;
-  const error = $("propose-error");
-  const available = state.data.state.config.model_available;
-
-  if (!task) return showFormError(error, "Describe the change you want. The task is required.");
-  if (!available && !patch.trim()) return showFormError(error, "Without an API key a unified diff is required.");
-  if (patch.trim() && !patch.includes("@@")) return showFormError(error, "That does not look like a unified diff — no @@ hunk header found.");
-  error.hidden = true;
-
-  try {
-    const result = await withBusy("Proposing a change…", () => post("/api/propose", { task, patch }));
-    $("propose-modal").close();
-    $("propose-task").value = "";
-    $("propose-patch").value = "";
-    toast(result.applies_cleanly ? "ok" : "bad",
-      result.applies_cleanly ? result.message : `${result.message} git refuses it: ${result.check_message}`);
-    await refresh(false);
-    select(`c${result.change_id}`);
-  } catch (failure) {
-    showFormError(error, failure.message);
-  }
-}
-
-async function submitImport(event) {
-  event.preventDefault();
-  const error = $("import-error");
-  let document_;
-  try {
-    document_ = JSON.parse($("import-doc").value);
-  } catch {
-    return showFormError(error, "That is not valid JSON.");
-  }
-  try {
-    const result = await withBusy("Importing…", () => post("/api/import", { document: document_ }));
-    $("import-modal").close();
-    $("import-doc").value = "";
-    toast("ok", result.message);
-    await refresh(false);
-  } catch (failure) {
-    showFormError(error, failure.message);
-  }
-}
 
 function setupResizer(handleId, variable, { min, max, invert = false }) {
   const handle = $(handleId);
@@ -410,10 +319,6 @@ function setupResizer(handleId, variable, { min, max, invert = false }) {
 }
 
 function bindDialogs() {
-  $("propose-form").addEventListener("submit", submitPropose);
-  $("propose-cancel").addEventListener("click", () => $("propose-modal").close());
-  $("import-form").addEventListener("submit", submitImport);
-  $("import-cancel").addEventListener("click", () => $("import-modal").close());
   $("ask-cancel").addEventListener("click", () => $("ask-modal").close());
   $("choose-cancel").addEventListener("click", () => $("choose-modal").close());
   $("help-close").addEventListener("click", () => $("help-modal").close());
@@ -433,7 +338,6 @@ function bindDialogs() {
 }
 
 function bindToolbar() {
-  $("btn-propose").addEventListener("click", openPropose);
   $("repo-chip").addEventListener("click", (event) => Menu.show(event, repoMenu()));
   $("btn-more").addEventListener("click", (event) => Menu.show(event, moreMenu()));
   $("btn-filter").addEventListener("click", (event) => Menu.show(event, filterMenu()));
@@ -482,10 +386,8 @@ function bindKeyboard() {
 
     const actions = {
       "/": () => $("search").focus(),
-      n: openPropose,
       o: openReposDialog,
       w: () => select("wip"),
-      i: reindex,
       r: () => quiet(refresh()),
       h: goToHead,
       b: createBranch,

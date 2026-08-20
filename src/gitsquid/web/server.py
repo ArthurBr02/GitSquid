@@ -9,28 +9,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .. import (
-    clone, diffs, gitlog, history, indexer, portability, refs, registry, sampledata, worktree,
-)
-from .. import __version__
-from ..config import ConfigError, Settings, load_settings
-from ..db import open_db
-from ..llm import AnthropicBackend, PatchFileBackend, ProposalError
-from ..models import ChangeRepo, ChangeStatus, EventLog, TestRunRepo
-from .. import gitcmd
+from .. import __version__, clone, gitcmd, gitlog, history, refs, registry, worktree
+from ..config import ConfigError, find_repo_root
 from ..gitcmd import GitError, require_paths
-from ..phrasing import plural
-from ..safety import clean_text_input
-from ..workflow import ChangeService, WorkflowError
 
 ASSETS = Path(__file__).parent / "assets"
 # What moves HEAD, rewrites history or touches a remote is recorded; staging noise is not.
-AUDITED_ACTIONS = frozenset({
-    "merge", "rebase", "cherry-pick", "revert-commit", "reset", "checkout-commit", "branch-from",
-    "branch", "delete-branch", "rename-branch", "checkout-remote", "delete-remote-branch",
-    "tag-create", "tag-delete", "tag-push", "push", "pull", "stash-branch", "abort", "continue",
-    "remote-add", "remote-remove", "skip", "restore-file",
-})
 MAX_BODY_BYTES = 2 * 1024 * 1024
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
 CONTENT_TYPES = {
@@ -52,9 +36,9 @@ class ApiError(Exception):
 class UIServer:
     """Serves the local interface. Loopback only — no account, no token, no network exposure."""
 
-    def __init__(self, settings: Settings, *, host: str = "127.0.0.1", port: int = 8756) -> None:
-        self.settings = settings
-        registry.add(settings.repo)
+    def __init__(self, repo: Path, *, host: str = "127.0.0.1", port: int = 8756) -> None:
+        self.repo = repo
+        registry.add(repo)
         handler = partial(_Handler, self)
         self._http = ThreadingHTTPServer((host, port), handler)
         self._http.daemon_threads = True
@@ -75,13 +59,9 @@ class UIServer:
         self._http.shutdown()
         self._http.server_close()
 
-    def service(self):
-        conn = open_db(self.settings.db_path)
-        return conn, ChangeService(conn, self.settings)
-
     def repos(self) -> dict:
         return {
-            "active": str(self.settings.repo),
+            "active": str(self.repo),
             "repos": [entry.as_dict() for entry in registry.known()],
         }
 
@@ -91,13 +71,11 @@ class UIServer:
             raise ApiError("A repository path is required.")
         try:
             root = registry.add(Path(raw).expanduser())
-            settings = load_settings(root)
         except ConfigError as exc:
             raise ApiError(str(exc)) from exc
         with self._lock:
-            open_db(settings.db_path).close()
-            self.settings = settings
-        return {"message": f"Opened {settings.repo.name}.", "active": str(settings.repo)}
+            self.repo = root
+        return {"message": f"Opened {root.name}.", "active": str(root)}
 
     def clone_repo(self, payload: dict) -> dict:
         """Clone, register, and open — the three things you always want together."""
@@ -105,43 +83,26 @@ class UIServer:
         parent = _string(payload, "parent")
         try:
             target = clone.clone(url, Path(parent).expanduser(), name=str(payload.get("name") or ""))
-            settings = load_settings(registry.add(target))
+            registry.add(target)
         except (GitError, ConfigError) as exc:
             raise ApiError(str(exc)) from exc
         with self._lock:
-            open_db(settings.db_path).close()
-            self.settings = settings
+            self.repo = target
         return {"message": f"Cloned into {target}.", "active": str(target)}
 
     def forget_repo(self, payload: dict) -> dict:
         raw = _string(payload, "path").strip()
-        if Path(raw).expanduser().resolve() == self.settings.repo:
+        if Path(raw).expanduser().resolve() == self.repo:
             raise ApiError("Close this repository by opening another one first.")
         if not registry.remove(raw):
             raise ApiError("That repository is not in the list.", HTTPStatus.NOT_FOUND)
         return {"message": "Removed from the list. Nothing on disk was touched."}
 
     def state(self) -> dict:
-        conn, _ = self.service()
-        try:
-            return {
-                "repo": self._repository(),
-                "config": self._configuration(),
-                "index": indexer.index_summary(conn),
-                "counts": {
-                    str(status): conn.execute(
-                        "SELECT COUNT(*) FROM changes WHERE status=?", (str(status),)
-                    ).fetchone()[0]
-                    for status in ChangeStatus
-                },
-                "total_changes": ChangeRepo(conn).count(),
-                "samples": sampledata.count(conn),
-            }
-        finally:
-            conn.close()
+        return {"repo": self._repository(), "config": self._configuration()}
 
     def _repository(self) -> dict:
-        repo = self.settings.repo
+        repo = self.repo
         return {
             "name": repo.name,
             "path": str(repo),
@@ -159,73 +120,21 @@ class UIServer:
         }
 
     def _configuration(self) -> dict:
-        return {
-            "model": self.settings.model,
-            "effort": self.settings.effort,
-            "test_command": self.settings.test_command,
-            "context_budget": self.settings.max_context_chars,
-            "database": str(self.settings.db_path),
-            "model_available": self.settings.model_available,
-            "version": __version__,
-            "git_version": gitcmd.git_version(),
-        }
+        return {"version": __version__, "git_version": gitcmd.git_version()}
 
     def graph(self, limit: int = 80, *, every_ref: bool = True) -> dict:
         limit = max(10, min(limit, 5000))
-        conn, _ = self.service()
-        try:
-            found = gitlog.commits(self.settings.repo, limit=limit, every_ref=every_ref)
-            return {
-                "commits": [asdict(commit) | {"short": commit.short} for commit in found],
-                "changes": [_change_row(change) for change in ChangeRepo(conn).list(limit=limit)],
-                "limit": limit,
-                "every_ref": every_ref,
-                "total_commits": gitlog.count_commits(self.settings.repo, every_ref=every_ref),
-            }
-        finally:
-            conn.close()
-
-    def change_detail(self, change_id: int) -> dict:
-        conn, _ = self.service()
-        try:
-            change = ChangeRepo(conn).get(change_id)
-            if change is None:
-                raise ApiError(f"No change #{change_id}.", HTTPStatus.NOT_FOUND)
-            added, removed = diffs.stats(change.diff)
-            check = diffs.check(self.settings.repo, change.diff)
-            return _change_row(change) | {
-                "diff": change.diff,
-                "rationale": change.rationale,
-                "base_commit": change.base_commit,
-                "digest": change.short_sha,
-                "added": added,
-                "removed": removed,
-                "applies_cleanly": check.ok,
-                "check_message": "" if check.ok else check.message,
-                "input_tokens": change.input_tokens,
-                "output_tokens": change.output_tokens,
-                "test_runs": [
-                    {
-                        "command": run.command,
-                        "exit_code": run.exit_code,
-                        "passed": run.passed,
-                        "duration_ms": run.duration_ms,
-                        "output": run.output_tail,
-                        "created_at": run.created_at,
-                    }
-                    for run in TestRunRepo(conn).for_change(change_id)
-                ],
-                "events": [
-                    {"kind": event.kind, "message": event.message, "created_at": event.created_at}
-                    for event in EventLog(conn).for_change(change_id)
-                ],
-            }
-        finally:
-            conn.close()
+        found = gitlog.commits(self.repo, limit=limit, every_ref=every_ref)
+        return {
+            "commits": [asdict(commit) | {"short": commit.short} for commit in found],
+            "limit": limit,
+            "every_ref": every_ref,
+            "total_commits": gitlog.count_commits(self.repo, every_ref=every_ref),
+        }
 
     def worktree(self) -> dict:
-        entries = worktree.status(self.settings.repo)
-        counts = worktree.line_counts(self.settings.repo)
+        entries = worktree.status(self.repo)
+        counts = worktree.line_counts(self.repo)
         return {
             "files": [entry.as_dict() | {"counts": counts.get(entry.path, {})} for entry in entries],
             "staged": sum(1 for entry in entries if entry.staged),
@@ -237,7 +146,7 @@ class UIServer:
                   context: int = 3) -> dict:
         try:
             return {"path": path, "staged": staged,
-                    "diff": worktree.file_diff(self.settings.repo, path, staged=staged,
+                    "diff": worktree.file_diff(self.repo, path, staged=staged,
                                                ignore_whitespace=ignore_whitespace,
                                                context=context)}
         except GitError as exc:
@@ -245,7 +154,7 @@ class UIServer:
 
     def blame(self, path: str, rev: str) -> dict:
         try:
-            return gitlog.blame(self.settings.repo, path, rev=rev)
+            return gitlog.blame(self.repo, path, rev=rev)
         except ValueError as exc:
             raise ApiError(str(exc)) from exc
 
@@ -254,10 +163,10 @@ class UIServer:
             require_paths([path])
         except GitError as exc:
             raise ApiError(str(exc)) from exc
-        return {"path": path, "commits": gitlog.file_history(self.settings.repo, path)}
+        return {"path": path, "commits": gitlog.file_history(self.repo, path)}
 
     def worktree_action(self, action: str, payload: dict) -> dict:
-        handlers = _handlers(self.settings.repo, payload)
+        handlers = _handlers(self.repo, payload)
         with self._lock:
             if action == "commit":
                 return self._commit(payload)
@@ -265,160 +174,36 @@ class UIServer:
             if handler is None:
                 raise ApiError(f"Unknown action: {action}", HTTPStatus.NOT_FOUND)
             try:
-                message = handler()
+                return {"message": handler()}
             except GitError as exc:
                 raise ApiError(str(exc)) from exc
-            if action in AUDITED_ACTIONS:
-                self._record(action, message)
-            return {"message": message}
 
     def _commit(self, payload: dict) -> dict:
         amend = bool(payload.get("amend"))
         try:
-            result = worktree.commit(self.settings.repo, _string(payload, "message"), amend=amend)
+            result = worktree.commit(self.repo, _string(payload, "message"), amend=amend)
         except GitError as exc:
             raise ApiError(str(exc)) from exc
-        verb = "Amended" if amend else "Committed"
-        self._record("amended" if amend else "committed", f"{result['short']} {result['message']}")
-        return {"message": f"{verb} {result['short']}.", "commit": result}
-
-    def _record(self, kind: str, message: str) -> None:
-        conn, _ = self.service()
-        try:
-            EventLog(conn).record(kind, message)
-        finally:
-            conn.close()
+        return {"message": f"{'Amended' if amend else 'Committed'} {result['short']}.", "commit": result}
 
     def search(self, query: str) -> dict:
         rows = [asdict(commit) | {"short": commit.short}
-                for commit in gitlog.search(self.settings.repo, query[:200])]
+                for commit in gitlog.search(self.repo, query[:200])]
         return {"query": query, "commits": rows}
 
     def commit_detail(self, sha: str) -> dict:
         try:
-            return gitlog.commit_detail(self.settings.repo, sha)
+            return gitlog.commit_detail(self.repo, sha)
         except ValueError as exc:
             raise ApiError(str(exc)) from exc
 
     def commit_patch(self, sha: str, path: str, ignore_whitespace: bool = False,
                      context: int = 3) -> dict:
         try:
-            return gitlog.commit_patch(self.settings.repo, sha, path or None,
+            return gitlog.commit_patch(self.repo, sha, path or None,
                                        ignore_whitespace=ignore_whitespace, context=context)
         except ValueError as exc:
             raise ApiError(str(exc)) from exc
-
-    def reindex(self) -> dict:
-        with self._lock:
-            conn, _ = self.service()
-            try:
-                stats = indexer.index_repo(
-                    conn, self.settings.repo, max_file_bytes=self.settings.max_file_bytes
-                )
-                EventLog(conn).record("indexed", f"{stats.files_indexed} indexed from the interface")
-                return {"message": f"{plural(stats.files_indexed, 'file')} re-indexed, {stats.files_unchanged} unchanged.", "index": indexer.index_summary(conn)}
-            finally:
-                conn.close()
-
-    def propose(self, payload: dict) -> dict:
-        task = _string(payload, "task")
-        patch = payload.get("patch") or ""
-        with self._lock:
-            conn, service = self.service()
-            try:
-                try:
-                    task = clean_text_input(task, max_len=2000, field="task")
-                except ValueError as exc:
-                    raise ApiError(str(exc)) from exc
-                if patch.strip():
-                    backend = PatchFileBackend(patch)
-                elif self.settings.model_available:
-                    backend = AnthropicBackend(self.settings)
-                else:
-                    raise ApiError(
-                        "No ANTHROPIC_API_KEY, so no model can be called. Paste a diff instead — "
-                        "GitSquid will validate, apply, test and record it."
-                    )
-                try:
-                    outcome = service.propose(task, backend)
-                except ProposalError as exc:
-                    raise ApiError(str(exc)) from exc
-                return {
-                    "message": f"Recorded change #{outcome.change.id}.",
-                    "change_id": outcome.change.id,
-                    "applies_cleanly": outcome.applies_cleanly,
-                    "check_message": outcome.check_message,
-                }
-            finally:
-                conn.close()
-
-    def act(self, change_id: int, action: str, payload: dict) -> dict:
-        with self._lock:
-            conn, service = self.service()
-            try:
-                change = ChangeRepo(conn).get(change_id)
-                if change is None:
-                    raise ApiError(f"No change #{change_id}.", HTTPStatus.NOT_FOUND)
-                if change.is_sample and action in {"apply", "revert"}:
-                    raise ApiError("Sample records describe a fictional repository and are never applied.")
-                try:
-                    if action == "apply":
-                        service.apply(change)
-                        return {"message": f"Change #{change_id} applied to the working tree."}
-                    if action == "revert":
-                        service.revert(change)
-                        return {"message": f"Change #{change_id} reversed."}
-                    if action == "test":
-                        command = payload.get("command") or self.settings.test_command
-                        run = service.verify(change, command=str(command)[:500])
-                        return {
-                            "message": f"`{run.command}` exited {run.exit_code} in {run.duration_ms}ms.",
-                            "passed": run.passed,
-                            "output": run.output_tail,
-                        }
-                except WorkflowError as exc:
-                    raise ApiError(str(exc)) from exc
-                raise ApiError(f"Unknown action: {action}", HTTPStatus.NOT_FOUND)
-            finally:
-                conn.close()
-
-    def samples(self, action: str) -> dict:
-        with self._lock:
-            conn, _ = self.service()
-            try:
-                if action == "load":
-                    if sampledata.count(conn) > 0:
-                        raise ApiError("Sample records are already loaded.")
-                    return {"message": f"Loaded {plural(sampledata.load(conn), 'sample change')}."}
-                removed = sampledata.clear(conn)
-                return {"message": f"Deleted {plural(removed['changes'], 'sample change')}."}
-            finally:
-                conn.close()
-
-    def export(self) -> bytes:
-        conn, _ = self.service()
-        try:
-            payload = portability.export_payload(conn, repo_name=self.settings.repo.name)
-            return json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
-        finally:
-            conn.close()
-
-    def import_payload(self, payload: dict) -> dict:
-        raw = payload.get("document")
-        if not isinstance(raw, dict):
-            raise ApiError("Paste the contents of a GitSquid export file.")
-        with self._lock:
-            conn, _ = self.service()
-            target = self.settings.state_dir / "import-staging.json"
-            try:
-                target.write_text(json.dumps(raw), encoding="utf-8")
-                stats = portability.import_from_file(conn, target)
-                return {"message": f"Imported {plural(stats.changes, 'change')}; {stats.skipped} already present."}
-            except portability.ImportError_ as exc:
-                raise ApiError(str(exc)) from exc
-            finally:
-                target.unlink(missing_ok=True)
-                conn.close()
 
 
 def _worktree_actions(repo: Path, payload: dict, paths: list[str]) -> dict:
@@ -495,20 +280,6 @@ def _handlers(repo: Path, payload: dict) -> dict:
     )
 
 
-def _change_row(change) -> dict:
-    return {
-        "id": change.id,
-        "task": change.task,
-        "status": str(change.status),
-        "source": str(change.source),
-        "model": change.model,
-        "files": change.files_touched,
-        "is_sample": change.is_sample,
-        "created_at": change.created_at,
-        "applied_at": change.applied_at,
-    }
-
-
 def _one(query: dict, key: str, default: str = "") -> str:
     return (query.get(key) or [default])[0]
 
@@ -538,22 +309,16 @@ GET_ROUTES = {
         _one(query, "path"), _one(query, "staged") == "1", _one(query, "ws") == "1",
         _int(query, "ctx", 3),
     ),
-    "/api/changes/": lambda ui, route, query: ui.change_detail(int(_tail(route, "/api/changes/")[0])),
     "/api/commits/": lambda ui, route, query: _commit_route(ui, _tail(route, "/api/commits/"), query),
 }
 
 POST_ROUTES = {
-    "/api/index": lambda ui, route, payload: ui.reindex(),
-    "/api/propose": lambda ui, route, payload: ui.propose(payload),
-    "/api/import": lambda ui, route, payload: ui.import_payload(payload),
     "/api/repos/open": lambda ui, route, payload: ui.open_repo(payload),
     "/api/repos/clone": lambda ui, route, payload: ui.clone_repo(payload),
     "/api/repos/forget": lambda ui, route, payload: ui.forget_repo(payload),
-    "/api/samples/": lambda ui, route, payload: ui.samples(_tail(route, "/api/samples/")[0]),
     "/api/worktree/": lambda ui, route, payload: ui.worktree_action(
         _tail(route, "/api/worktree/")[0], payload
     ),
-    "/api/changes/": lambda ui, route, payload: _change_action(ui, _tail(route, "/api/changes/"), payload),
 }
 
 
@@ -572,12 +337,6 @@ def _commit_route(ui, parts: list[str], query: dict) -> dict:
             parts[0], _one(query, "path"), _one(query, "ws") == "1", _int(query, "ctx", 3)
         )
     raise ApiError("Expected /api/commits/<sha>[/patch].", HTTPStatus.NOT_FOUND)
-
-
-def _change_action(ui, parts: list[str], payload: dict) -> dict:
-    if len(parts) != 2:
-        raise ApiError("Expected /api/changes/<id>/<action>.", HTTPStatus.NOT_FOUND)
-    return ui.act(int(parts[0]), parts[1], payload)
 
 
 def _string(payload: dict, key: str) -> str:
@@ -667,8 +426,6 @@ class _Handler(BaseHTTPRequestHandler):
             self._asset("index.html")
         elif route.startswith("/assets/"):
             self._asset(route.removeprefix("/assets/"))
-        elif route == "/api/export":
-            self._download(self.ui.export(), "gitsquid-export.json")
         else:
             self._dispatch(GET_ROUTES, route, parse_qs(parsed.query))
 
@@ -683,14 +440,6 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self._dispatch(POST_ROUTES, urlparse(self.path).path, payload)
 
-    def _download(self, body: bytes, filename: str) -> None:
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
 
-
-def serve(settings: Settings, *, port: int = 8756) -> UIServer:
-    return UIServer(settings, port=port)
+def serve(repo: Path, *, port: int = 8756) -> UIServer:
+    return UIServer(repo, port=port)

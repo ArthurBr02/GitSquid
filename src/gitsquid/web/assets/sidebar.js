@@ -1,10 +1,5 @@
 "use strict";
 
-const FILTER_LABELS = {
-  all: "Everything", commits: "Commits", proposed: "Proposed", applied: "Applied",
-  verified: "Verified", failed: "Failed", reverted: "Reverted",
-};
-
 function treeRow({ id, label, meta, metaTitle, icon: iconName, sub, current, className = "", onclick, menu }) {
   const node = el("div", {
     id,
@@ -212,38 +207,6 @@ function renderRepoChip(repo, config) {
   $("db-path").title = config.database;
 }
 
-function modelMenu(config, repo) {
-  if (config.model_available) {
-    return [
-      { header: "Model" },
-      { label: config.model, hint: `effort ${config.effort}` },
-      { label: "Where it comes from", hint: ".env" },
-    ];
-  }
-  return [
-    { header: "Degraded mode" },
-    { label: `No ANTHROPIC_API_KEY in ${repo.name}/.env` },
-    { label: "Everything but a model proposal works" },
-    { label: "Copy the line to add to .env",
-      run: () => copy("ANTHROPIC_API_KEY=sk-ant-…", "The .env line") },
-  ];
-}
-
-function renderModelChip(repo, config) {
-  const model = clear($("model-state"));
-  model.append(
-    el("span", { class: `dot ${config.model_available ? "on" : "off"}`, "aria-hidden": "true" }),
-    el("button", {
-      type: "button", class: "model-chip",
-      onclick: (event) => Menu.show(event, modelMenu(config, repo)),
-      text: config.model_available ? config.model : "no API key",
-    }),
-  );
-  model.title = config.model_available
-    ? `Proposals go to ${config.model} (effort ${config.effort}).`
-    : "No API key here: GitSquid still validates, applies, tests and records a diff you paste.";
-}
-
 function renderRemoteButtons(repo) {
   const tracking = repo.tracking || { ahead: 0, behind: 0 };
   for (const [id, count] of [["badge-ahead", tracking.ahead], ["badge-behind", tracking.behind]]) {
@@ -257,21 +220,15 @@ function renderRemoteButtons(repo) {
 }
 
 function renderChrome() {
-  const { repo, config, index, counts } = state.data.state;
+  const { repo, config } = state.data.state;
   renderRepoChip(repo, config);
-  renderModelChip(repo, config);
   renderRemoteButtons(repo);
 
   const head = repo.head || { branch: "", sha: "", detached: false };
   $("head-label").textContent = head.detached ? head.sha : (head.branch || "HEAD");
   $("btn-head").title = `Go to where you are: ${head.branch || "detached"} at ${head.sha} (H)`;
-
-  $("index-stat").textContent = index.files
-    ? `${index.files.toLocaleString()} files · ${index.chunks.toLocaleString()} chunks indexed`
-    : "not indexed yet";
-  $("filter-label").textContent = FILTER_LABELS[state.filter] || "Everything";
-  $("btn-filter").classList.toggle("on", state.filter !== "all");
-  state.counts = { ...counts, all: state.rows.length, commits: state.data.graph.commits.length };
+  $("filter-label").textContent = state.refs === "head" ? "This branch" : "Every branch";
+  $("btn-filter").classList.toggle("on", state.refs === "head");
 }
 
 let lastRefresh = 0;
@@ -311,30 +268,17 @@ function filterMenu() {
     { header: "Show" },
     { label: "Every branch", className: state.refs === "all" ? "on" : "", run: showRefs("all") },
     { label: "This branch only", className: state.refs === "head" ? "on" : "", run: showRefs("head") },
-    { header: "Rows" },
-    ...Object.entries(FILTER_LABELS).map(([key, label]) => ({
-      label,
-      hint: String((state.counts || {})[key] ?? ""),
-      className: key === state.filter ? "on" : "",
-      run: () => { state.filter = key; renderRows(); renderChrome(); },
-    })),
   ];
 }
 
 function moreMenu() {
-  const { samples, config } = { samples: state.data.state.samples, config: state.data.state.config };
+  const { config } = state.data.state;
   return [
     { header: `GitSquid ${config.version} · git ${config.git_version}`, plain: true },
     { label: "Repositories…", hint: "O", run: openReposDialog },
     { label: "Refresh", hint: "R", run: () => quiet(refresh()) },
     "-",
-    { label: "Re-index this repository", hint: "I", run: reindex },
-    { label: "Export the history…", run: exportHistory },
-    { label: "Import a history…", run: () => openDialog("import-modal", "import-doc", "import-error") },
-    "-",
-    { label: samples ? "Delete the sample records" : "Load sample records",
-      run: () => samplesAction(samples ? "clear" : "load") },
-    { label: "Appearance…", run: (event) => Menu.show($("btn-more"), themeMenu()) },
+    { label: "Appearance…", run: () => Menu.show($("btn-more"), themeMenu()) },
     { label: "Keyboard shortcuts", hint: "?", run: () => $("help-modal").showModal() },
   ];
 }

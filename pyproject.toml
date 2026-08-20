@@ -5,15 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "gitsquid"
 version = "0.1.0"
-description = "Repository-local Git client assistant: index one codebase, propose diffs, run tests, record every change."
+description = "A Git client for one repository at a time: graph, staging down to the line, blame, and history, in a local page."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
     "typer>=0.12",
     "rich>=13.7",
-    "python-dotenv>=1.0",
-    "anthropic>=0.40",
 ]
 
 [project.optional-dependencies]

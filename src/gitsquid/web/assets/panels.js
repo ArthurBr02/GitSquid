@@ -166,62 +166,10 @@ function openCommit(sha) {
   quiet(renderCommitDetail(sha));
 }
 
-function actionButton(label, kind, handler, disabled) {
-  return el("button", { type: "button", class: `btn ${kind}`, disabled, onclick: handler, text: label });
-}
-
-const CHANGE_LABELS = { apply: "Applying", test: "Running the test command", revert: "Reverting" };
-
-async function changeAction(id, action) {
-  await quiet(withBusy(`${CHANGE_LABELS[action]} on change #${id}…`, async () => {
-    const result = await post(`/api/changes/${id}/${action}`);
-    toast(action === "test" && !result.passed ? "bad" : "ok", result.message);
-    await refresh();
-  }));
-}
-
 // Two selections in flight would race, and the slower request would win the panel.
 function newestRender() {
   state.render += 1;
   return state.render;
-}
-
-function changeHead(change) {
-  const applicable = ["proposed", "failed"].includes(change.status);
-  const testable = ["applied", "verified", "failed"].includes(change.status);
-  return el("div", { class: "detail-head" }, [
-    el("h2", { text: change.task }),
-    el("div", { class: "detail-sub" }, [
-      el("span", { class: `tag ${change.status}`, text: change.status }),
-      el("span", { text: `#${change.id}` }),
-      el("span", { text: change.source }),
-      el("span", { text: `+${change.added} / -${change.removed}` }),
-      el("span", { class: "relative", text: relativeTime(change.created_at) }),
-      change.is_sample ? el("span", { class: "tag sample", text: "sample" }) : null,
-    ]),
-    el("div", { class: "detail-actions" }, [
-      actionButton("Apply", "primary", () => changeAction(change.id, "apply"),
-        change.is_sample || !applicable || !change.applies_cleanly),
-      actionButton("Run tests", "ghost", () => changeAction(change.id, "test"), !testable),
-      actionButton("Revert", "danger", () => {
-        if (confirm(`Reverse change #${change.id} in the working tree?`)) changeAction(change.id, "revert");
-      }, change.is_sample || !testable),
-    ]),
-  ]);
-}
-
-function changeBanner(change) {
-  if (change.is_sample) {
-    return el("div", { class: "detail-section" }, [
-      el("p", { class: "banner warn", text: "Sample record. It describes a fictional billing module, is never applied, and is deleted by “Clear samples”." }),
-    ]);
-  }
-  if (!change.applies_cleanly && change.status === "proposed") {
-    return el("div", { class: "detail-section" }, [
-      el("p", { class: "banner bad", text: `git refuses this patch: ${change.check_message}` }),
-    ]);
-  }
-  return null;
 }
 
 function filesSection(context, label, added, removed, empty) {
@@ -237,73 +185,6 @@ function filesSection(context, label, added, removed, empty) {
       ? renderFileList(context, context.files, `${label} in this ${context.kind}`)
       : el("p", { class: "prose", text: empty }),
   ]);
-}
-
-function testRunsSection(runs) {
-  const section = el("section", { class: "detail-section" }, [el("h3", { text: "Test runs" })]);
-  if (!runs.length) {
-    section.append(el("p", { class: "prose", text: "Not verified yet. Apply the change, then run the tests." }));
-  }
-  for (const run of runs) {
-    section.append(el("div", { class: `run ${run.passed ? "pass" : "fail"}` }, [
-      el("div", { class: "run-head" }, [
-        el("span", { text: run.passed ? "passed" : `failed (exit ${run.exit_code})` }),
-        el("span", { text: run.command }),
-        el("span", { text: `${run.duration_ms}ms` }),
-      ]),
-      el("pre", { text: run.output || "(no output)" }),
-    ]));
-  }
-  return section;
-}
-
-function factsSection(change) {
-  const facts = el("dl", { class: "kv" });
-  for (const [label, value] of [
-    ["Files", change.files.join(", ") || "none"],
-    ["Model", change.model || "none"],
-    ["Digest", change.digest],
-    ["Base commit", (change.base_commit || "unknown").slice(0, 12)],
-    ["Applied", change.applied_at || "never"],
-    ["Tokens", change.input_tokens ? `${change.input_tokens} in / ${change.output_tokens} out` : "n/a"],
-  ]) {
-    facts.append(el("dt", { text: label }), el("dd", { text: value }));
-  }
-  return el("section", { class: "detail-section" }, [el("h3", { text: "Details" }), facts]);
-}
-
-function trailSection(events) {
-  const trail = el("ol", { class: "trail" });
-  for (const event of events) {
-    trail.append(el("li", {}, [
-      el("span", { text: event.created_at }),
-      el("span", { class: "kind", text: event.kind }),
-      el("span", { text: event.message }),
-    ]));
-  }
-  return el("section", { class: "detail-section" }, [el("h3", { text: "Audit trail" }), trail]);
-}
-
-async function renderChangeDetail(id) {
-  const token = newestRender();
-  const detail = clear($("detail"));
-  detail.append(el("div", { class: "empty-state" }, [el("p", { text: "Loading change…" })]));
-  const change = await api(`/api/changes/${id}`);
-  if (token !== state.render) return;
-
-  const context = changeContext(change);
-  fill(clear(detail),
-    changeHead(change),
-    changeBanner(change),
-    change.rationale
-      ? el("section", { class: "detail-section" }, [
-          el("h3", { text: "Rationale" }), el("p", { class: "prose", text: change.rationale })])
-      : null,
-    filesSection(context, "Files", change.added, change.removed, "This patch touches no file."),
-    testRunsSection(change.test_runs),
-    factsSection(change),
-    trailSection(change.events),
-  );
 }
 
 function commitHead(commit, menu, context) {

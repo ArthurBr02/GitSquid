@@ -70,7 +70,6 @@ class TestRegistry:
         shutil.rmtree(gone)
         entry = registry.known()[0]
         assert entry.exists is False
-        assert entry.initialized is False
 
     def test_a_corrupt_registry_file_is_ignored(self):
         target = registry.registry_path()

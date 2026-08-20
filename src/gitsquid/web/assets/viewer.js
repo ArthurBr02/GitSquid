@@ -30,22 +30,6 @@ function worktreeContext(staged) {
   };
 }
 
-function changeContext(change) {
-  const files = parseDiff(change.diff).map((file) => ({
-    path: filePathOf(file),
-    status: fileStatusOf(file),
-    added: file.hunks.reduce((n, hunk) => n + hunk.lines.filter((l) => l.startsWith("+")).length, 0),
-    removed: file.hunks.reduce((n, hunk) => n + hunk.lines.filter((l) => l.startsWith("-")).length, 0),
-    text: [...file.header, ...file.hunks.flatMap((hunk) => hunk.lines)].join("\n") + "\n",
-  }));
-  return {
-    kind: "change",
-    where: `change #${change.id}`,
-    files,
-    fetch: (path) => Promise.resolve({ diff: files.find((file) => file.path === path)?.text || "" }),
-  };
-}
-
 function filePathOf(file) {
   const header = file.header.find((line) => line.startsWith("diff --git ")) || "";
   const match = /^diff --git a\/(.+?) b\/(.+)$/.exec(header);
