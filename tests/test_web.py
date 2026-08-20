@@ -582,3 +582,25 @@ class TestSearchOverHttp:
         assert status == 200, payload
         assert (repo / "partage.py").read_text() == "VALEUR = 2\n"
         assert call(server, "/api/worktree")[1]["conflicted"] == 0
+
+
+class TestWhatTheGraphCovers:
+    def test_every_branch_by_default(self, server, repo):
+        git(repo, "checkout", "-q", "-b", "ailleurs")
+        commit_over_http(server, repo, "ailleurs.py", "A = 1\n", "travail ailleurs")
+        git(repo, "checkout", "-q", "main")
+
+        payload = call(server, "/api/graph")[1]
+        assert payload["every_ref"] is True
+        assert payload["commits"][0]["subject"] == "travail ailleurs"
+        assert payload["total_commits"] == 2
+
+    def test_this_branch_only_on_request(self, server, repo):
+        git(repo, "checkout", "-q", "-b", "ailleurs")
+        commit_over_http(server, repo, "ailleurs.py", "A = 1\n", "travail ailleurs")
+        git(repo, "checkout", "-q", "main")
+
+        payload = call(server, "/api/graph?refs=head")[1]
+        assert payload["every_ref"] is False
+        assert [commit["subject"] for commit in payload["commits"]] == ["initial"]
+        assert payload["total_commits"] == 1

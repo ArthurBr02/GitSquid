@@ -24,6 +24,7 @@ const state = {
   painting: null,
   render: 0,
   limit: 80,
+  refs: recall("graph.refs", "all"),
   diffView: {
     wrap: recall("diff.wrap", "off") === "on",
     space: recall("diff.space", "off") === "on",
@@ -289,7 +290,8 @@ function leaveSearch() {
 
 async function refresh(keepSelection = true) {
   const [stateData, graph, worktreeData, repos] = await Promise.all([
-    api("/api/state"), api(`/api/graph?limit=${state.limit}`), api("/api/worktree"), api("/api/repos"),
+    api("/api/state"), api(`/api/graph?limit=${state.limit}&refs=${state.refs}`),
+    api("/api/worktree"), api("/api/repos"),
   ]);
   state.data = { state: stateData, graph };
   state.worktree = worktreeData;

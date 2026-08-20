@@ -163,17 +163,17 @@ class UIServer:
             "git_version": gitcmd.git_version(),
         }
 
-    def graph(self, limit: int = 80) -> dict:
+    def graph(self, limit: int = 80, *, every_ref: bool = True) -> dict:
         limit = max(10, min(limit, 5000))
         conn, _ = self.service()
         try:
-            rows = [asdict(commit) | {"short": commit.short} for commit in gitlog.commits(self.settings.repo, limit=limit)]
-            changes = [_change_row(change) for change in ChangeRepo(conn).list(limit=limit)]
+            found = gitlog.commits(self.settings.repo, limit=limit, every_ref=every_ref)
             return {
-                "commits": rows,
-                "changes": changes,
+                "commits": [asdict(commit) | {"short": commit.short} for commit in found],
+                "changes": [_change_row(change) for change in ChangeRepo(conn).list(limit=limit)],
                 "limit": limit,
-                "total_commits": gitlog.count_commits(self.settings.repo),
+                "every_ref": every_ref,
+                "total_commits": gitlog.count_commits(self.settings.repo, every_ref=every_ref),
             }
         finally:
             conn.close()
@@ -519,7 +519,9 @@ def _tail(route: str, prefix: str) -> list[str]:
 # POST. Prefixed routes end with "/" and match anything under them.
 GET_ROUTES = {
     "/api/state": lambda ui, route, query: ui.state(),
-    "/api/graph": lambda ui, route, query: ui.graph(_int(query, "limit", 80)),
+    "/api/graph": lambda ui, route, query: ui.graph(
+        _int(query, "limit", 80), every_ref=_one(query, "refs", "all") != "head"
+    ),
     "/api/worktree": lambda ui, route, query: ui.worktree(),
     "/api/repos": lambda ui, route, query: ui.repos(),
     "/api/search": lambda ui, route, query: ui.search(_one(query, "q")),

@@ -86,19 +86,20 @@ def working_status(repo: Path) -> dict[str, int]:
     return {"staged": staged, "unstaged": unstaged, "untracked": untracked}
 
 
-def count_commits(repo: Path) -> int:
-    result = run(repo, ["rev-list", "--count", "--all"])
+def count_commits(repo: Path, *, every_ref: bool = True) -> int:
+    result = run(repo, ["rev-list", "--count", "--all" if every_ref else "HEAD"])
     return int(result.stdout.strip() or 0) if result.returncode == 0 else 0
 
 
-def commits(repo: Path, *, limit: int = 80) -> list[Commit]:
+def commits(repo: Path, *, limit: int = 80, every_ref: bool = True) -> list[Commit]:
     """Every ref's commits, newest first — work on another branch is newer, not invisible.
 
     --date-order rather than --topo-order: a parent still never sits above its child, but two
     branches interleave by date instead of one being drained before the other starts.
     """
     result = run(repo, [
-        "log", "--date-order", "--all", f"--max-count={limit}", f"--pretty=format:{LOG_FORMAT}",
+        "log", "--date-order", *(["--all"] if every_ref else []),
+        f"--max-count={limit}", f"--pretty=format:{LOG_FORMAT}",
     ])
     if result.returncode != 0:
         return []

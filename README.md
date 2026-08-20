@@ -97,8 +97,8 @@ version into the working tree. On a recorded change: apply, run tests, revert.
   precisely what you chose.
 - **Search** — typing filters the rows on screen; <kbd>Enter</kbd> asks git instead, across every
   branch, by message, author or touched path.
-- **Depth** — the graph says how far back it has looked ("80 of 3007 commits loaded") and goes
-  further on request.
+- **Depth and scope** — the graph says how far back it has looked ("80 of 3657 commits loaded")
+  and goes further on request; the filter chip switches between every branch and this branch only.
 - **Reading options** — wrap long lines, ignore whitespace, or ask for ten or twenty-five lines of
   context instead of three; each one is remembered.
 - **Undo and amend** — the head commit offers both: amend reopens it in the commit box, undo is a

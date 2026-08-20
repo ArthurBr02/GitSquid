@@ -305,12 +305,23 @@ function themeMenu() {
 }
 
 function filterMenu() {
-  return Object.entries(FILTER_LABELS).map(([key, label]) => ({
-    label,
-    hint: String((state.counts || {})[key] ?? ""),
-    className: key === state.filter ? "on" : "",
-    run: () => { state.filter = key; renderRows(); renderChrome(); },
-  }));
+  const showRefs = (refs) => () => {
+    state.refs = refs;
+    remember("graph.refs", refs);
+    quiet(refresh());
+  };
+  return [
+    { header: "Show" },
+    { label: "Every branch", className: state.refs === "all" ? "on" : "", run: showRefs("all") },
+    { label: "This branch only", className: state.refs === "head" ? "on" : "", run: showRefs("head") },
+    { header: "Rows" },
+    ...Object.entries(FILTER_LABELS).map(([key, label]) => ({
+      label,
+      hint: String((state.counts || {})[key] ?? ""),
+      className: key === state.filter ? "on" : "",
+      run: () => { state.filter = key; renderRows(); renderChrome(); },
+    })),
+  ];
 }
 
 function moreMenu() {
