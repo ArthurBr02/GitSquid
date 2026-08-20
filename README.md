@@ -111,7 +111,7 @@ revert it, rebase the current branch onto it, reset the branch to it (soft / mix
 its SHA or its message. On a branch: check out, merge or squash merge, rebase onto it, branch from
 it, rename, push, delete. On a remote branch: check out as a tracking branch, fetch, delete on the
 remote. On a tag: check out, push, delete. On a stash: apply, pop, branch from it, drop. On a file:
-stage, unstage, discard, ignore, file history, copy path. On a recorded change: apply, run tests,
+stage, unstage, discard, ignore, file history, blame, copy path. On a recorded change: apply, run tests,
 revert.
 
 - **Per-hunk staging** — a working-tree diff carries Stage, Unstage and Discard on each hunk.
@@ -129,6 +129,9 @@ revert.
   **Abort**. The conflicted files get their own group in the panel, and each can be settled by
   keeping your side or the incoming side whole.
 - **File history** — the commits that touched one file, renames followed, from its context menu.
+- **Blame** — who last touched each line, from the same menus; a line's commit is one click away.
+- **Remotes** — add or remove one from the sidebar, so a repository that starts without a remote
+  does not need a terminal to gain one.
 - **New change** — task plus an optional diff. Without an API key the diff becomes required, and
   the dialog says so before you submit rather than after.
 
