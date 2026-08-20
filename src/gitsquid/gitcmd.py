@@ -23,6 +23,9 @@ def run(
             input=stdin,
             capture_output=True,
             text=True,
+            # Repositories hold files git never promised were UTF-8. A latin-1 line must not
+            # crash a diff; it comes back with a replacement character instead.
+            errors="replace",
             timeout=timeout,
             check=False,
             # Inherit the environment (git needs HOME for the user's identity) but never

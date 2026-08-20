@@ -246,3 +246,24 @@ class TestAnnotatedTags:
         assert detail["subject"] == "initial"
         assert detail["files"]
         assert "calc.py" in gitlog.commit_patch(repo, tag_object)["diff"]
+
+
+class TestFilesGitNeverPromisedWereUtf8:
+    @pytest.fixture
+    def latin(self, repo):
+        (repo / "latin.txt").write_bytes("café en latin-1\n".encode("latin-1"))
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "un fichier latin-1")
+        return repo
+
+    def test_a_patch_comes_back_instead_of_an_exception(self, latin):
+        head = git(latin, "rev-parse", "HEAD").stdout.strip()
+        patch = gitlog.commit_patch(latin, head, "latin.txt")
+        assert "latin-1" in patch["diff"]
+
+    def test_the_file_is_listed_like_any_other(self, latin):
+        head = git(latin, "rev-parse", "HEAD").stdout.strip()
+        assert [file["path"] for file in gitlog.commit_detail(latin, head)["files"]] == ["latin.txt"]
+
+    def test_blame_survives_it_too(self, latin):
+        assert gitlog.blame(latin, "latin.txt")["lines"]
