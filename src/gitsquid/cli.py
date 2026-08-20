@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Iterator, NoReturn
 from pathlib import Path
 
 import typer
@@ -29,12 +29,17 @@ EXIT_FAILURE = 1
 EXIT_INVALID = 2
 
 
+def _abort(exc: Exception, code: int) -> NoReturn:
+    """Report a failure the way the terminal expects, and stop there."""
+    ui.fail(str(exc))
+    raise typer.Exit(code) from exc
+
+
 def _settings(repo: Path | None = None) -> Settings:
     try:
         return load_settings(repo)
     except ConfigError as exc:
-        ui.fail(str(exc))
-        raise typer.Exit(EXIT_INVALID) from exc
+        _abort(exc, EXIT_INVALID)
 
 
 @contextmanager
@@ -57,8 +62,7 @@ def _open(settings: Settings, *, create: bool = False) -> sqlite3.Connection:
     try:
         return open_db(settings.db_path, create=True)
     except (SchemaError, sqlite3.Error) as exc:
-        ui.fail(str(exc))
-        raise typer.Exit(EXIT_FAILURE) from exc
+        _abort(exc, EXIT_FAILURE)
 
 
 def _require_change(repo: ChangeRepo, change_id: int) -> Change:
@@ -248,8 +252,7 @@ def propose(
             with ui.working(f"Proposing a diff with {backend.name}…"):
                 outcome = service.propose(cleaned, backend, pinned=list(file or []))
         except (ProposalError, ValidationError) as exc:
-            ui.fail(str(exc))
-            raise typer.Exit(EXIT_FAILURE) from exc
+            _abort(exc, EXIT_FAILURE)
 
         _render_proposal(outcome, plain=plain)
         if outcome.applies_cleanly:
@@ -336,8 +339,7 @@ def apply(
         try:
             service.apply(change)
         except WorkflowError as exc:
-            ui.fail(str(exc))
-            raise typer.Exit(EXIT_FAILURE) from exc
+            _abort(exc, EXIT_FAILURE)
         ui.ok(f"Change #{change.id} applied to {settings.repo}.")
         ui.info(f"Next: `gitsquid test {change.id}` to verify, or `gitsquid revert {change.id}` to undo.")
 
@@ -391,8 +393,7 @@ def revert(
         try:
             service.revert(change)
         except WorkflowError as exc:
-            ui.fail(str(exc))
-            raise typer.Exit(EXIT_FAILURE) from exc
+            _abort(exc, EXIT_FAILURE)
         ui.ok(f"Change #{change.id} reversed.")
 
 
@@ -459,8 +460,7 @@ def run_command(
             with ui.working(f"Proposing a diff with {backend.name}…"):
                 outcome = service.propose(cleaned, backend, pinned=list(file or []))
         except (ProposalError, ValidationError) as exc:
-            ui.fail(str(exc))
-            raise typer.Exit(EXIT_FAILURE) from exc
+            _abort(exc, EXIT_FAILURE)
 
         _render_proposal(outcome, plain=plain)
         change = outcome.change
@@ -475,8 +475,7 @@ def run_command(
         try:
             service.apply(change)
         except WorkflowError as exc:
-            ui.fail(str(exc))
-            raise typer.Exit(EXIT_FAILURE) from exc
+            _abort(exc, EXIT_FAILURE)
         ui.ok(f"Applied change #{change.id}.")
 
         if skip_tests:
@@ -510,8 +509,7 @@ def _resolve_ui_repo(repo: Path | None) -> Settings:
         try:
             return load_settings(repo)
         except ConfigError as exc:
-            ui.fail(str(exc))
-            raise typer.Exit(EXIT_INVALID) from exc
+            _abort(exc, EXIT_INVALID)
 
     for entry in registry.known():  # newest first: the head is the last repository opened
         if entry.exists:
