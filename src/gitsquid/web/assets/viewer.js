@@ -306,22 +306,22 @@ function viewerHead(view, entry) {
     el("button", {
       type: "button", class: "icon-btn", title: "How this diff is shown",
       "aria-haspopup": "menu", "aria-label": "Diff options",
-      onclick: (event) => Menu.show(event, diffViewMenu()), text: "⋯",
-    }),
+      onclick: (event) => Menu.show(event, diffViewMenu()),
+    }, [icon("dots")]),
     el("span", { class: "viewer-nav" }, [
       el("button", {
         type: "button", class: "icon-btn", title: "Previous file (↑)", "aria-label": "Previous file",
-        disabled: at <= 0, onclick: () => viewerStep(-1), text: "‹",
-      }),
+        disabled: at <= 0, onclick: () => viewerStep(-1),
+      }, [icon("chevron-left")]),
       el("button", {
         type: "button", class: "icon-btn", title: "Next file (↓)", "aria-label": "Next file",
-        disabled: at < 0 || at >= context.files.length - 1, onclick: () => viewerStep(1), text: "›",
-      }),
+        disabled: at < 0 || at >= context.files.length - 1, onclick: () => viewerStep(1),
+      }, [icon("chevron-right")]),
     ]),
     el("button", {
       type: "button", class: "icon-btn", title: "Back to the graph (Esc)",
-      "aria-label": "Back to the graph", onclick: closeViewer, text: "✕",
-    }),
+      "aria-label": "Back to the graph", onclick: closeViewer,
+    }, [icon("close")]),
   );
 }
 

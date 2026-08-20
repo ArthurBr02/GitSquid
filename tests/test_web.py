@@ -604,3 +604,20 @@ class TestWhatTheGraphCovers:
         assert payload["every_ref"] is False
         assert [commit["subject"] for commit in payload["commits"]] == ["initial"]
         assert payload["total_commits"] == 1
+
+
+class TestTheIconFont:
+    def test_it_is_served_from_the_assets(self, server):
+        import urllib.request
+
+        url = f"http://127.0.0.1:{server.port}/assets/primeicons/fonts/primeicons.woff2"
+        with urllib.request.urlopen(url, timeout=30) as response:
+            assert response.status == 200
+            assert response.headers["Content-Type"] == "font/woff2"
+            assert response.read(4) == b"wOF2"
+
+    def test_the_policy_lets_the_page_load_it(self, server):
+        import urllib.request
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{server.port}/", timeout=30) as response:
+            assert "font-src 'self'" in response.headers["Content-Security-Policy"]

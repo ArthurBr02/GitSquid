@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GitSquid</title>
+<link rel="stylesheet" href="/assets/primeicons/primeicons.css">
 <link rel="stylesheet" href="/assets/app.css">
 </head>
 <body>
@@ -18,7 +19,7 @@
     title="Switch repository (O)">
     <span class="repo-name" id="repo-name">—</span>
     <span class="branch" id="repo-branch"></span>
-    <span class="chevron" aria-hidden="true">▾</span>
+    <span data-icon="chevron-down" data-size="12"></span>
   </button>
 
   <div class="toolbar" role="toolbar" aria-label="Repository actions">
@@ -32,10 +33,10 @@
       </button>
     </span>
     <button type="button" class="btn" id="btn-propose" title="Ask for a change (N)">
-      <span aria-hidden="true">✚</span> New change
+      <span data-icon="plus" data-size="13"></span> New change
     </button>
     <button type="button" class="icon-btn" id="btn-more" aria-haspopup="menu"
-      aria-label="More actions" title="More actions">⋯</button>
+      aria-label="More actions" title="More actions"><span data-icon="dots"></span></button>
   </div>
 
   <div class="model-state" id="model-state" role="status" aria-live="polite"></div>
@@ -53,7 +54,7 @@
     <div class="pane-head" id="pane-head">
       <button type="button" class="filter-chip" id="btn-filter" aria-haspopup="menu">
         <span id="filter-label">Everything</span>
-        <span class="chevron" aria-hidden="true">▾</span>
+        <span data-icon="chevron-down" data-size="12"></span>
       </button>
       <label class="search-label" for="search">
         <span class="visually-hidden">Search the graph</span>
@@ -61,7 +62,7 @@
       </label>
       <button type="button" class="btn tiny ghost" id="btn-leave-search" hidden>Leave search</button>
       <button type="button" class="filter-chip head-chip" id="btn-head" title="Go to where you are (H)">
-        <span class="dot-here" aria-hidden="true"></span>
+        <span data-icon="map-marker" data-size="12"></span>
         <span id="head-label">HEAD</span>
       </button>
       <span class="pane-count" id="row-count"></span>
@@ -153,6 +154,7 @@
     <dt><kbd>B</kbd> <kbd>T</kbd> <kbd>S</kbd></dt><dd>Branch · tag · stash</dd>
     <dt><kbd>R</kbd> <kbd>I</kbd></dt><dd>Refresh · re-index</dd>
     <dt><kbd>H</kbd></dt><dd>Go to where you are</dd>
+    <dt>Double click</dt><dd>Move HEAD to a commit</dd>
     <dt><kbd>O</kbd></dt><dd>Repositories</dd>
     <dt><kbd>?</kbd></dt><dd>This dialog</dd>
   </dl>
@@ -180,6 +182,15 @@
       <button type="submit" class="btn primary">Add and open</button>
     </menu>
   </form>
+</dialog>
+
+<dialog class="modal small" id="choose-modal" aria-labelledby="choose-title">
+  <h2 id="choose-title">…</h2>
+  <p class="hint" id="choose-hint"></p>
+  <div class="choices" id="choose-list"></div>
+  <menu class="modal-actions">
+    <button type="button" class="btn ghost" id="choose-cancel">Cancel</button>
+  </menu>
 </dialog>
 
 <dialog class="modal small" id="ask-modal" aria-labelledby="ask-title">

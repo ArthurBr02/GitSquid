@@ -67,7 +67,10 @@ def reset(repo: Path, sha: str, *, mode: str = "mixed") -> str:
         "mixed": "the working tree is untouched, the index was cleared",
         "hard": "the working tree was overwritten",
     }[mode]
-    return f"{gitlog.current_branch(repo)} now points at {sha[:7]} — {kept}."
+    return (
+        f"{gitlog.current_branch(repo)} now points at {sha[:7]} — {kept}. "
+        "What came after is out of the graph; git keeps it in the reflog for a while."
+    )
 
 
 def rebase(repo: Path, target: str) -> str:

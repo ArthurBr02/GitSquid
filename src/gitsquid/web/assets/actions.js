@@ -17,6 +17,51 @@ async function worktreeAction(action, paths, extra = {}) {
   }));
 }
 
+const RESET_MODES = [
+  ["soft", "Keep everything, staged", "The files do not change; what came after stays in the index."],
+  ["mixed", "Keep everything, unstaged", "The files do not change; the index is cleared."],
+  ["hard", "Throw the work away", "The files go back to that commit. Anything uncommitted is lost."],
+];
+
+function localBranchesAt(row) {
+  const names = new Set((row.refs || []).map((ref) => ref.replace(/^HEAD -> /, "")));
+  return state.data.state.repo.branches.filter((branch) => names.has(branch.name));
+}
+
+async function moveHead(row) {
+  const repo = state.data.state.repo;
+  const head = repo.head || {};
+  if (row.sha === head.commit) return toast("ok", "You are already on this commit.");
+
+  const dirty = state.worktree.files.length;
+  const here = localBranchesAt(row).filter((branch) => branch.name !== repo.branch);
+  const on = head.detached ? "HEAD" : repo.branch;
+  const chosen = await choose({
+    title: `Move HEAD to ${row.short}`,
+    hint: `${row.subject || "(no message)"}${dirty ? ` — ${plural(dirty, "uncommitted file")} in the way` : ""}`,
+    options: [
+      ...here.map((branch) => ({
+        value: { action: "checkout", payload: { branch: branch.name } },
+        label: `Check out ${branch.name}`,
+        detail: "That branch already points here, so nothing is rewritten.",
+      })),
+      {
+        value: { action: "checkout-commit", payload: { sha: row.sha } },
+        label: "Check out this commit",
+        detail: "HEAD detaches here. Your branch keeps pointing where it does.",
+      },
+      ...RESET_MODES.map(([mode, label, detail]) => ({
+        value: { action: "reset", payload: { sha: row.sha, mode } },
+        label: `Reset ${on} here — ${label}`,
+        detail,
+        danger: mode === "hard",
+      })),
+    ],
+  });
+  if (chosen) await worktreeAction(chosen.action, null, chosen.payload);
+  return undefined;
+}
+
 async function commitStaged() {
   const message = ($("commit-message") || {}).value || state.commitMessage;
   if (!message.trim()) {

@@ -28,6 +28,39 @@ const fill = (node, ...children) => {
 };
 const clear = (node) => { while (node.firstChild) node.firstChild.remove(); return node; };
 
+const ICONS = {
+  "chevron-down": "pi-chevron-down",
+  "chevron-right": "pi-chevron-right",
+  "chevron-left": "pi-chevron-left",
+  dots: "pi-ellipsis-h",
+  plus: "pi-plus",
+  close: "pi-times",
+  refresh: "pi-refresh",
+  stash: "pi-download",
+  edit: "pi-pencil",
+  commit: "pi-circle-fill",
+  circle: "pi-circle",
+  remote: "pi-cloud",
+  tag: "pi-tag",
+  layers: "pi-inbox",
+  "corner-up-left": "pi-arrow-up-left",
+  "arrow-right": "pi-arrow-right",
+};
+
+function icon(name, size = 13) {
+  const node = document.createElement("i");
+  node.className = `icon pi ${ICONS[name] || `pi-${name}`}`;
+  node.style.fontSize = `${size}px`;
+  node.setAttribute("aria-hidden", "true");
+  return node;
+}
+
+function fillIconSlots(root = document) {
+  for (const slot of root.querySelectorAll("[data-icon]")) {
+    slot.replaceWith(icon(slot.dataset.icon, Number(slot.dataset.size) || 14));
+  }
+}
+
 function menuButton(label, items, { before = null } = {}) {
   return el("button", {
     type: "button", class: "row-menu", "aria-label": `Actions for ${label}`,
@@ -36,7 +69,7 @@ function menuButton(label, items, { before = null } = {}) {
       if (before) before();
       Menu.show(event, items());
     },
-  }, ["⋯"]);
+  }, [icon("dots")]);
 }
 
 function relativeTime(iso) {
@@ -62,6 +95,38 @@ function copy(text, what) {
     () => toast("ok", `${what} copied.`),
     () => toast("bad", "The clipboard refused the copy."),
   );
+}
+
+function choose({ title, hint = "", options }) {
+  const modal = $("choose-modal");
+  $("choose-title").textContent = title;
+  $("choose-hint").textContent = hint;
+  $("choose-hint").hidden = !hint;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      modal.removeEventListener("close", onClose);
+      resolve(value);
+    };
+    const onClose = () => finish(null);
+    const list = clear($("choose-list"));
+    for (const option of options) {
+      list.append(el("button", {
+        type: "button",
+        class: `choice${option.danger ? " danger" : ""}`,
+        onclick: () => { finish(option.value); modal.close(); },
+      }, [
+        el("span", { class: "choice-label", text: option.label }),
+        option.detail ? el("span", { class: "choice-detail", text: option.detail }) : null,
+      ]));
+    }
+    modal.addEventListener("close", onClose);
+    modal.showModal();
+    list.querySelector(".choice")?.focus();
+  });
 }
 
 function ask({ title, hint = "", label, placeholder = "", value = "", submit = "OK", optional = false, extra = null }) {

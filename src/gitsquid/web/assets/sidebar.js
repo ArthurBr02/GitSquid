@@ -5,7 +5,7 @@ const FILTER_LABELS = {
   verified: "Verified", failed: "Failed", reverted: "Reverted",
 };
 
-function treeRow({ id, label, meta, metaTitle, icon, sub, current, className = "", onclick, menu }) {
+function treeRow({ id, label, meta, metaTitle, icon: iconName, sub, current, className = "", onclick, menu }) {
   const node = el("div", {
     id,
     class: `tree-row ${className}`,
@@ -17,7 +17,7 @@ function treeRow({ id, label, meta, metaTitle, icon, sub, current, className = "
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onclick(); }
     },
   }, [
-    icon ? el("span", { class: "tree-icon", "aria-hidden": "true", text: icon }) : null,
+    iconName ? el("span", { class: "tree-icon" }, [icon(iconName, 12)]) : null,
     el("span", { class: "tree-label", title: label }, [
       label,
       sub ? el("span", { class: "sub" }, sub) : null,
@@ -33,14 +33,14 @@ const CLOSED_BY_DEFAULT = new Set(["remotes", "tags"]);
 function section(key, { title, count, action, rows, empty }) {
   const open = recall(`section.${key}`, CLOSED_BY_DEFAULT.has(key) ? "closed" : "open") === "open";
   const head = el("summary", { class: "section-head" }, [
-    el("span", { class: "caret", "aria-hidden": "true", text: "▸" }),
+    el("span", { class: "caret" }, [icon("chevron-right", 12)]),
     el("span", { class: "section-title", text: title }),
     count !== undefined ? el("span", { class: "section-count", text: String(count) }) : null,
     action ? el("button", {
       type: "button", class: "icon-btn section-action", title: action.title,
       "aria-label": action.title,
       onclick: (event) => { event.preventDefault(); event.stopPropagation(); action.run(event); },
-    }, [action.label]) : null,
+    }, [icon(action.label)]) : null,
   ]);
   const body = el("div", { class: "section-body" }, rows.length ? rows : [
     el("p", { class: "tree-empty", text: empty }),
@@ -57,7 +57,7 @@ function worktreeSection(files) {
     rows: [treeRow({
       id: "wip-row",
       label: files.length ? "Uncommitted changes" : "Clean",
-      icon: "◆",
+      icon: "edit",
       current: state.selected === "wip",
       sub: files.length
         ? [el("span", { class: state.worktree.staged ? "on" : "", text: `${state.worktree.staged} staged` }),
@@ -73,7 +73,7 @@ function branchesSection(repo) {
   return section("branches", {
     title: "Branches",
     count: repo.branches.length,
-    action: { label: "+", title: "Create a branch", run: createBranch },
+    action: { label: "plus", title: "Create a branch", run: createBranch },
     empty: "No branch yet.",
     rows: repo.branches.map((branch) => {
       const isCurrent = branch.name === repo.branch;
@@ -85,7 +85,7 @@ function branchesSection(repo) {
         metaTitle: drift
           ? `${branch.ahead} ahead of, ${branch.behind} behind ${branch.upstream}`
           : (branch.upstream ? `up to date with ${branch.upstream}` : "no upstream"),
-        icon: isCurrent ? "●" : "○",
+        icon: isCurrent ? "commit" : "circle",
         className: isCurrent ? "current" : "",
         onclick: () => { if (!isCurrent) switchBranch(branch.name); },
         menu: () => branchMenu(branch, isCurrent),
@@ -101,7 +101,7 @@ function remotesSection(repo) {
     title: "Remote branches",
     count: remote.length,
     action: {
-      label: hasRemote ? "⟳" : "+",
+      label: hasRemote ? "refresh" : "plus",
       title: hasRemote ? "Fetch, or manage the remotes" : "Add a remote",
       run: hasRemote ? (event) => Menu.show(event || $("sidebar"), remotesMenu(repo)) : addRemote,
     },
@@ -109,7 +109,7 @@ function remotesSection(repo) {
     rows: remote.map((entry) => treeRow({
       label: entry.name,
       meta: entry.tracked ? "tracked" : entry.sha,
-      icon: "⇅",
+      icon: "remote",
       onclick: () => worktreeAction("checkout-remote", null, { branch: entry.name }),
       menu: () => remoteBranchMenu(entry),
     })),
@@ -121,12 +121,12 @@ function tagsSection(repo) {
   return section("tags", {
     title: "Tags",
     count: tags.length,
-    action: { label: "+", title: "Tag the current commit", run: createTag },
+    action: { label: "plus", title: "Tag the current commit", run: createTag },
     empty: "No tag.",
     rows: tags.map((tag) => treeRow({
       label: tag.name,
       meta: tag.sha,
-      icon: "⚑",
+      icon: "tag",
       onclick: () => openCommit(tag.sha),
       menu: () => tagMenu(tag),
     })),
@@ -138,12 +138,12 @@ function stashesSection(repo) {
   return section("stashes", {
     title: "Stashes",
     count: stashes.length,
-    action: { label: "⤓", title: "Stash the working tree", run: stashWorkingTree },
+    action: { label: "stash", title: "Stash the working tree", run: stashWorkingTree },
     empty: "No stash.",
     rows: stashes.map((stash) => treeRow({
       label: stash.subject,
       meta: stash.age,
-      icon: "≡",
+      icon: "layers",
       onclick: () => { if (stash.sha) openCommit(stash.sha); },
       menu: () => stashMenu(stash),
     })),

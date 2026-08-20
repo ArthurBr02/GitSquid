@@ -119,6 +119,7 @@ function rowElement(row) {
     id: `row-${row.key}`,
     "aria-selected": state.selected === row.key ? "true" : "false",
     onclick: () => select(row.key),
+    ondblclick: () => { if (row.kind === "commit") moveHead(row); },
     oncontextmenu: (event) => { event.preventDefault(); select(row.key); Menu.show(event, rowMenu(row)); },
   }, rowContent(row));
 }
@@ -414,6 +415,7 @@ function bindDialogs() {
   $("import-form").addEventListener("submit", submitImport);
   $("import-cancel").addEventListener("click", () => $("import-modal").close());
   $("ask-cancel").addEventListener("click", () => $("ask-modal").close());
+  $("choose-cancel").addEventListener("click", () => $("choose-modal").close());
   $("help-close").addEventListener("click", () => $("help-modal").close());
   $("repos-close").addEventListener("click", () => $("repos-modal").close());
   $("repo-form").addEventListener("submit", (event) => {
@@ -525,6 +527,7 @@ function bind() {
 
 async function boot() {
   applyTheme(recall("theme", "system"));
+  fillIconSlots();
   bind();
   try {
     await refresh(false);

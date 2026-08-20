@@ -102,6 +102,35 @@ class TestACommit:
         assert "Revert this commit" in labels
 
 
+class TestMovingHead:
+    def test_a_double_click_offers_every_way_to_get_there(self, page):
+        page.locator("#rows li", has_text="initial").first.dblclick()
+        page.wait_for_selector("#choose-modal[open]")
+        labels = page.locator(".choice-label").all_inner_texts()
+        assert "Check out this commit" in labels
+        assert any("Reset main here" in label for label in labels)
+        assert any("Throw the work away" in label for label in labels)
+        page.click("#choose-cancel")
+
+    def test_choosing_a_reset_moves_the_branch(self, page, running):
+        page.locator("#rows li", has_text="initial").first.dblclick()
+        page.wait_for_selector("#choose-modal[open]")
+        page.locator(".choice", has_text="Keep everything, unstaged").click()
+        page.wait_for_selector(".toast")
+        page.wait_for_timeout(600)
+
+        assert "now points at" in page.inner_text(".toast")
+        assert "initial" in page.inner_text("#rows li.head"), "HEAD moved to the older commit"
+        # nothing points at the commit that was reset away, so git no longer lists it
+        assert page.locator("#rows li .row-title").all_inner_texts().count("un second commit") == 0
+
+    def test_the_commit_you_are_on_says_so(self, page):
+        page.locator("#rows li.head").first.dblclick()
+        page.wait_for_timeout(400)
+        assert page.locator("#choose-modal[open]").count() == 0
+        assert "already on this commit" in page.inner_text(".toast")
+
+
 class TestTheWorkingTree:
     def test_a_file_can_be_staged_from_the_panel(self, page):
         page.click("#wip-row")

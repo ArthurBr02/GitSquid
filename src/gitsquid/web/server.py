@@ -33,7 +33,14 @@ AUDITED_ACTIONS = frozenset({
 })
 MAX_BODY_BYTES = 2 * 1024 * 1024
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
-CONTENT_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".svg": "image/svg+xml"}
+CONTENT_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+}
 
 
 class ApiError(Exception):
@@ -606,7 +613,8 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'",
+            "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:; "
+            "font-src 'self'; connect-src 'self'",
         )
         self.end_headers()
         if self.command != "HEAD":

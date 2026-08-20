@@ -103,6 +103,9 @@ version into the working tree. On a recorded change: apply, run tests, revert.
   context instead of three; each one is remembered.
 - **Undo and amend** — the head commit offers both: amend reopens it in the commit box, undo is a
   soft reset onto its parent that brings the work back staged.
+- **Move HEAD** — double click a commit (or its **Move HEAD here…** menu item) and choose how: check
+  out a branch that already points there, detach onto the commit, or reset your branch to it —
+  soft, mixed or hard, each spelled out in terms of what happens to your files.
 - **Appearance** — dark, light, or whatever the system asks for.
 - **Interrupted operations** — when a merge, rebase, cherry-pick or revert stops on a conflict, a
   bar names it, counts the files that still conflict, and offers **Continue** (once none do),
@@ -211,7 +214,7 @@ and can end at `reverted`; illegal transitions are refused by the model layer, n
 | `phrasing.py` | How the product counts things, so nothing says "1 file(s)". |
 | `history.py` | Check out a commit, branch from it, cherry-pick, revert, reset, rebase — and abort or continue what conflicts. |
 | `registry.py` | The list of known repositories, shared by every session. |
-| `web/` | Loopback HTTP server and JSON API. The page is small scripts, one job each: `base` (elements, text, the API), `menu` (the context-menu component), `menus` (what each row offers), `sidebar`, `viewer` (the middle pane when it shows a file), `diff` (how a patch is drawn and picked apart), `panels` (the right column), `actions`, and `app` (state, rows, selection, boot). `graph.js` lays out and paints the lanes. |
+| `web/` | Loopback HTTP server and JSON API; `assets/primeicons/` is the icon font, vendored (MIT) so the page fetches nothing from the network. The page is small scripts, one job each: `base` (elements, text, the API), `menu` (the context-menu component), `menus` (what each row offers), `sidebar`, `viewer` (the middle pane when it shows a file), `diff` (how a patch is drawn and picked apart), `panels` (the right column), `actions`, and `app` (state, rows, selection, boot). `graph.js` lays out and paints the lanes. |
 | `workflow.py` | `ChangeService` — the core loop, independent of the CLI. |
 | `portability.py` | Export and import, with validation of untrusted files. |
 | `safety.py` | Redaction, path validation, input cleaning. |

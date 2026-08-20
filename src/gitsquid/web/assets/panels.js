@@ -152,7 +152,7 @@ async function openFileHistory(path) {
         type: "button", class: "row-menu", title: "Show the whole commit",
         "aria-label": `Show the commit ${commit.short}`,
         onclick: () => openCommit(commit.sha),
-      }, ["→"]),
+      }, [icon("arrow-right")]),
     ]));
   }
   detail.append(el("section", { class: "detail-section" }, [
@@ -319,15 +319,15 @@ function commitHead(commit, menu, context) {
       commit.merge ? el("span", { class: "tag applied", text: "merge" }) : null,
       ...commit.parents.map((parent, index) => el("button", {
         type: "button", class: "sha-copy", title: `Go to parent ${index + 1}`,
-        onclick: () => openCommit(parent), text: `↰ ${parent.slice(0, 7)}`,
-      })),
+        onclick: () => openCommit(parent),
+      }, [icon("corner-up-left", 11), parent.slice(0, 7)])),
       ...commit.refs.map((ref) => el("span", { class: "tag ref", text: ref })),
     ]),
     el("div", { class: "detail-actions" }, [
       el("button", {
         type: "button", class: "btn ghost", "aria-haspopup": "menu",
-        onclick: (event) => Menu.show(event, menu()), text: "Actions ▾",
-      }),
+        onclick: (event) => Menu.show(event, menu()),
+      }, ["Actions", icon("chevron-down", 12)]),
       el("button", {
         type: "button", class: "btn ghost",
         onclick: () => openFileView({ ...context, files: [] }, ""), text: "Whole patch",
