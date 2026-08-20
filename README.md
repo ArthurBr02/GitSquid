@@ -116,8 +116,8 @@ revert it, rebase the current branch onto it, reset the branch to it (soft / mix
 its SHA or its message. On a branch: check out, merge or squash merge, rebase onto it, branch from
 it, rename, push, delete. On a remote branch: check out as a tracking branch, fetch, delete on the
 remote. On a tag: check out, push, delete. On a stash: apply, pop, branch from it, drop. On a file:
-stage, unstage, discard, ignore, file history, blame, copy path. On a recorded change: apply, run tests,
-revert.
+stage, unstage, discard, ignore, file history, blame, copy path — and, in a commit, restore that
+version into the working tree. On a recorded change: apply, run tests, revert.
 
 - **Per-hunk staging** — a working-tree diff carries Stage, Unstage and Discard on each hunk.
 - **Search** — typing filters the rows on screen; <kbd>Enter</kbd> asks git instead, across every
