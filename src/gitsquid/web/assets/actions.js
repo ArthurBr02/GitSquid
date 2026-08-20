@@ -35,6 +35,12 @@ async function moveHead(row) {
 
   const dirty = state.worktree.files.length;
   const here = localBranchesAt(row).filter((branch) => branch.name !== repo.branch);
+
+  // Fast path: one obvious branch and a clean worktree — just switch.
+  if (here.length === 1 && !dirty) {
+    return switchBranch(here[0].name);
+  }
+
   const on = head.detached ? "HEAD" : repo.branch;
   const chosen = await choose({
     title: `Move HEAD to ${row.short}`,

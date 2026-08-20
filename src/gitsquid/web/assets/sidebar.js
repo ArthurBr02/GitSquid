@@ -197,14 +197,14 @@ function renderOperation(repo) {
   );
 }
 
-function renderRepoChip(repo, config) {
+function renderRepoChip(repo) {
   const head = repo.head || { detached: false, sha: "" };
   document.title = `${repo.name} — GitSquid`;
   $("repo-name").textContent = repo.name;
   $("repo-branch").textContent = head.detached ? `detached at ${head.sha}` : repo.branch;
   $("repo-branch").classList.toggle("detached", head.detached);
-  $("db-path").textContent = config.database;
-  $("db-path").title = config.database;
+  $("db-path").textContent = repo.path;
+  $("db-path").title = repo.path;
 }
 
 function renderRemoteButtons(repo) {
@@ -221,7 +221,7 @@ function renderRemoteButtons(repo) {
 
 function renderChrome() {
   const { repo, config } = state.data.state;
-  renderRepoChip(repo, config);
+  renderRepoChip(repo);
   renderRemoteButtons(repo);
 
   const head = repo.head || { branch: "", sha: "", detached: false };

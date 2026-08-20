@@ -14,8 +14,6 @@ PY
 .venv/bin/python -m pip install --quiet --upgrade pip
 .venv/bin/python -m pip install --quiet -e ".[dev]"
 
-[ -f .env ] || { cp .env.example .env; echo "[ok] created .env from .env.example"; }
-
 echo "[ok] installed. Next:"
 echo "     source .venv/bin/activate"
-echo "     gitsquid init && gitsquid index && gitsquid doctor"
+echo "     gitsquid ui"

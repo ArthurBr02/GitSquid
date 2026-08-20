@@ -15,6 +15,9 @@ function commitMenu(row) {
   const sha = row.sha;
   const isHead = (row.refs || []).some((ref) => ref.startsWith("HEAD"));
   const parent = (row.parents || [])[0];
+  // Branch refs on this commit that are not the current branch and not HEAD — merge/checkout targets.
+  const otherBranches = (row.refs || []).filter((ref) =>
+    ref !== branch && !ref.startsWith("HEAD") && !ref.startsWith("tag:"));
   return [
     { header: `Commit ${row.short}` },
     ...(isHead && parent && (row.parents || []).length === 1 ? [
@@ -25,6 +28,11 @@ function commitMenu(row) {
           "reset", { sha: parent, mode: "soft" }) },
       "-",
     ] : []),
+    ...otherBranches.map((ref) => (
+      { label: `Merge ${ref} into ${branch}`,
+        run: confirmed(`Merge ${ref} into ${branch}?`, "merge", { branch: ref }) }
+    )),
+    ...(otherBranches.length ? ["-"] : []),
     { label: "New branch here…",
       run: () => askThen({ title: "Branch from this commit", hint: `Branches at ${row.short} and switches to it.`, label: "Branch name", placeholder: "feature/ma-fonctionnalite", submit: "Create" }, "branch-from", (a) => ({ sha, name: a.value })) },
     { label: "Tag this commit…",

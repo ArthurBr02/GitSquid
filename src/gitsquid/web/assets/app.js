@@ -1,7 +1,5 @@
 "use strict";
 
-const ROW_H = 42;
-
 const state = {
   data: null,
   worktree: { files: [], staged: 0, unstaged: 0, conflicted: 0 },
@@ -73,7 +71,7 @@ function rowContent(row) {
 
   side.append(
     el("span", { class: "relative when", title: new Date(row.when).toLocaleString(), text: relativeTime(row.when) }),
-    menuButton("this row", () => rowMenu(row), { before: () => select(row.key) }),
+    ...(row.kind === "wip" ? [menuButton("this row", () => rowMenu(row), { before: () => select(row.key) })] : []),
   );
   return [main, side];
 }
@@ -140,15 +138,19 @@ function renderRows() {
   for (const row of visible) list.append(rowElement(row));
   depthBar();
 
-  state.painting = { laid, gap, width };
+  // The SVG and the list must share the browser's actual row height. A duplicated
+  // constant drifts a little further from its commit on every row.
+  const firstRow = list.firstElementChild;
+  const rowHeight = firstRow ? firstRow.getBoundingClientRect().height : 0;
+  state.painting = { laid, gap, width, rowHeight };
   paintGraph();
 }
 
 function paintGraph() {
   if (!state.painting) return;
-  const { laid, gap, width } = state.painting;
+  const { laid, gap, width, rowHeight } = state.painting;
   Graph.paint($("graph-canvas"), laid, {
-    rowHeight: ROW_H,
+    rowHeight,
     gap,
     width,
     pendingColor: () => "#e8ae33",

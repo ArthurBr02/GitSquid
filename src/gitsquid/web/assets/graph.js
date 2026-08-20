@@ -193,7 +193,7 @@ const Graph = (() => {
   /* Paints the whole list in one SVG: every band ends where the next one starts, so lines join. */
   function paint(svg, laid, options) {
     const { rowHeight, gap, width } = options;
-    const height = Math.max(rowHeight, laid.rows.length * rowHeight);
+    const height = laid.rows.length * rowHeight;
     const x = (column) => PAD + column * gap;
     const radius = Math.max(3.5, Math.min(5, gap * 0.32));
 

@@ -1,22 +1,16 @@
 # GitSquid
 
-A Git client for one repository at a time, with an assistant attached. It draws the graph, stages
-by file, by hunk or by line, commits, branches, merges, rebases, blames, searches the whole
-history — and, when you ask it to, gets a diff from a model, validates it, applies it, runs your
-tests, and records every step.
+A Git client for one repository at a time. It draws the graph, stages by file, by hunk or by line,
+commits, branches, merges, rebases, blames, and searches the whole history — in a page served on
+your own machine, with nothing behind it but `git`.
 
-Everything lives inside the repository you point it at. No account, no server, no telemetry.
+No account, no server, no telemetry, no database of its own.
 
+```bash
+gitsquid ui          # the interface, on http://127.0.0.1:8756
+gitsquid ui --repo . # this folder rather than the last one you opened
+gitsquid doctor      # which repository would open, and what this is made of
 ```
-gitsquid ui                                     # the interface, on http://127.0.0.1:8756
-gitsquid init                                   # create .gitsquid/gitsquid.db
-gitsquid index                                  # index this repository
-gitsquid run "make period_start timezone-aware" # propose → apply → test → record
-gitsquid log                                    # what happened, newest first
-gitsquid revert 3                               # undo a change, recorded too
-```
-
-The interface opens any repository as it is. `init` and `index` are for the assistant half only.
 
 ---
 
@@ -26,14 +20,9 @@ Requires **Python 3.12+** and **git** on `PATH`.
 
 ```bash
 ./scripts/install.sh          # creates .venv and installs gitsquid in editable mode
-cp .env.example .env          # then edit .env
 source .venv/bin/activate
-gitsquid init && gitsquid index
-gitsquid doctor                  # config, data location, model availability
+gitsquid ui
 ```
-
-`ANTHROPIC_API_KEY` in `.env` enables model-generated proposals. Without it the tool still works —
-see [Degraded mode](#degraded-mode).
 
 ### Scripts
 
@@ -71,16 +60,14 @@ it is a local tool for one person. Three columns, one job each:
   <kbd>Esc</kbd> to come back.
 - **Right — what is selected.** A commit shows its message, then its files — grouped by folder,
   with their status letter and the lines each one gained and lost — never the whole patch at once,
-  which is what makes a 27-file merge readable. A recorded change shows its rationale, its files, its test runs and its
-  audit trail. The working tree shows the commit box, with an **Amend** toggle, and the files
-  grouped into conflicted, staged and unstaged.
+  which is what makes a 27-file merge readable. The working tree shows the commit box, with an
+  **Amend** toggle, and the files grouped into conflicted, staged and unstaged.
 
-The top bar holds the repository chip — every registered repository, each with its own database,
-index, `.env` and history, plus **Clone a repository…** for one you do not have yet — then Fetch,
-Pull, Push with their ahead/behind counts, and **New change**. Everything rare lives behind the
-**⋯** menu: re-index, export, import, sample records, the repository list, the appearance, the
-shortcuts. A right click on Push offers a force push with lease. The page
-refreshes itself when you come back to the window, so what your editor did shows up without asking.
+The top bar holds the repository chip — every repository you have opened, plus **Clone a
+repository…** for one you do not have yet — then Fetch, Pull and Push with their ahead/behind
+counts. The **⋯** menu keeps the rest: the repository list, a manual refresh, the appearance, the
+shortcuts. A right click on Push offers a force push with lease. The page refreshes itself when you
+come back to the window, so what your editor did shows up without asking.
 
 **What a right click offers.** On a commit: check it out, branch from it, tag it, cherry-pick it,
 revert it, rebase the current branch onto it, reset the branch to it (soft / mixed / hard), copy
@@ -89,7 +76,7 @@ it, rename, push, delete. On a remote branch: check out as a tracking branch, fe
 remote. On a tag: check out, push, delete. On a stash: show what it holds, apply, pop, branch from
 it, drop. On a file:
 stage, unstage, discard, ignore, file history, blame, copy path — and, in a commit, restore that
-version into the working tree. On a recorded change: apply, run tests, revert.
+version into the working tree.
 
 - **Per-hunk and per-line staging** — a working-tree diff carries Stage, Unstage and Discard on
   each hunk; click the line numbers to pick individual lines and act on exactly those. An unpicked
@@ -115,15 +102,12 @@ version into the working tree. On a recorded change: apply, run tests, revert.
 - **Blame** — who last touched each line, from the same menus; a line's commit is one click away.
 - **Remotes** — add or remove one from the sidebar, so a repository that starts without a remote
   does not need a terminal to gain one.
-- **New change** — task plus an optional diff. Without an API key the diff becomes required, and
-  the dialog says so before you submit rather than after.
 
 Both dividers are draggable, keep their width between sessions, and are focusable for keyboard
 resizing with <kbd>←</kbd><kbd>→</kbd>.
 
-Keyboard: <kbd>N</kbd> new change · <kbd>W</kbd> uncommitted changes · <kbd>B</kbd> branch ·
+Keyboard: <kbd>W</kbd> uncommitted changes · <kbd>B</kbd> branch ·
 <kbd>T</kbd> tag · <kbd>S</kbd> stash · <kbd>H</kbd> where you are · <kbd>R</kbd> refresh ·
-<kbd>I</kbd> re-index ·
 <kbd>/</kbd> search · <kbd>↑</kbd><kbd>↓</kbd> or <kbd>j</kbd><kbd>k</kbd> move ·
 <kbd>Enter</kbd> focus the detail · <kbd>Shift</kbd>+<kbd>F10</kbd> the menu of the selected row ·
 <kbd>Esc</kbd> leave a field, close a menu, or leave a file · <kbd>?</kbd> the full list. Nothing
@@ -157,212 +141,99 @@ bundle, and running the wrong one tells you so immediately instead of failing in
 
 ---
 
-## The core loop
-
-```
-        ┌── index ──┐        ┌── propose ──┐      ┌── apply ──┐     ┌── test ──┐
-repo ──▶│  files →  │──────▶ │  retrieval  │────▶ │ validate  │───▶ │ your     │
-        │  chunks   │        │  → model    │      │ git apply │     │ command  │
-        └───────────┘        └─────────────┘      └───────────┘     └──────────┘
-              │                     │                    │                │
-              └──────────────── SQLite: files, chunks, changes, test_runs, events ───┘
-```
-
-Every step writes to the database. A change moves through `proposed → applied → verified | failed`
-and can end at `reverted`; illegal transitions are refused by the model layer, not by the UI.
-
-### Commands
-
-| Command | Purpose |
-| --- | --- |
-| `gitsquid init` | Create `.gitsquid/gitsquid.db`. |
-| `gitsquid index [--force]` | Walk the repository, chunk text files, refresh the FTS5 index. |
-| `gitsquid search QUERY` | Show exactly what retrieval would feed a proposal. |
-| `gitsquid propose TASK` | Ask for a diff, validate it, record it. Writes nothing to your files. |
-| `gitsquid show ID` | Diff, rationale, test runs, and audit trail for one change. |
-| `gitsquid apply ID` | Apply a recorded diff to the working tree. |
-| `gitsquid test [ID]` | Run `GITSQUID_TEST_COMMAND` and attach the result to a change. |
-| `gitsquid revert ID` | Reverse an applied diff. |
-| `gitsquid log [--status S]` | List recorded changes. |
-| `gitsquid run TASK` | The whole loop in one command. `--revert-on-failure` undoes a red test run. |
-| `gitsquid export FILE` / `gitsquid import FILE` | Portable JSON in and out. |
-| `gitsquid sample load` / `gitsquid sample clear` | Labelled demo records, and their deletion. |
-| `gitsquid doctor` | Configuration, data location, degraded-mode status. |
-| `gitsquid ui` | Serve the interface on `127.0.0.1`. |
-
----
-
 ## Architecture
 
 `src/gitsquid/`, one responsibility per module:
 
 | Module | Responsibility |
 | --- | --- |
-| `config.py` | Locate the repository root, read `.env`, validate settings. |
-| `db.py` | SQLite connection, schema, `PRAGMA user_version` guard. |
-| `models.py` | `Change` / `TestRun` / `Event` plus their repositories and the status state machine. |
-| `indexer.py` | Walk, filter, chunk, hash; incremental re-indexing. |
-| `retrieval.py` | FTS5 search and context assembly under a character budget. |
-| `llm.py` | `ProposalBackend` protocol; the Anthropic backend and the patch-file backend. |
-| `diffs.py` | Unified-diff parsing, path safety, `git apply` / `--check` / `--reverse`. |
-| `runner.py` | Run the verification command, capture and time it. |
+| `config.py` | Find the root of the repository you are in. |
 | `gitcmd.py` | The one place git is invoked: process, timeouts, credential-prompt refusal, and the validation of every ref, path and commit id that reaches a command line. |
-| `gitlog.py` | Reads: commits, parents, branches, remote branches, tags, status, file history, and the operation git stopped in the middle of. |
+| `gitlog.py` | Reads: commits, parents, branches, remote branches, tags, status, file history, blame, and the operation git stopped in the middle of. |
 | `worktree.py` | The working tree and the index: stage, unstage, discard, ignore, per-hunk apply, commit, amend, branch, merge, stash, and the remote sync. |
 | `refs.py` | Tags, remote branches, remotes, and branch renaming. |
+| `history.py` | Check out a commit, branch from it, cherry-pick, revert, reset, rebase, restore one file — and abort, skip or continue what conflicts. |
 | `clone.py` | Getting a repository in the first place. |
-| `phrasing.py` | How the product counts things, so nothing says "1 file(s)". |
-| `history.py` | Check out a commit, branch from it, cherry-pick, revert, reset, rebase — and abort or continue what conflicts. |
+| `diffs.py` | Unified-diff parsing and path safety, for the patches the interface builds. |
 | `registry.py` | The list of known repositories, shared by every session. |
-| `web/` | Loopback HTTP server and JSON API; `assets/primeicons/` is the icon font, vendored (MIT) so the page fetches nothing from the network. The page is small scripts, one job each: `base` (elements, text, the API), `menu` (the context-menu component), `menus` (what each row offers), `sidebar`, `viewer` (the middle pane when it shows a file), `diff` (how a patch is drawn and picked apart), `panels` (the right column), `actions`, and `app` (state, rows, selection, boot). `graph.js` lays out and paints the lanes. |
-| `workflow.py` | `ChangeService` — the core loop, independent of the CLI. |
-| `portability.py` | Export and import, with validation of untrusted files. |
-| `safety.py` | Redaction, path validation, input cleaning. |
-| `ui.py` | Terminal states: empty, loading, validation, success, failure. |
-| `cli.py` | Typer commands. Thin: argument handling and presentation only. |
-
-The CLI depends on `ChangeService`; `ChangeService` depends on the `ProposalBackend` protocol, not
-on Anthropic. That is what lets the test suite drive the full loop with a stub backend and no
-network.
+| `safety.py` | Path validation and credential-shaped file detection. |
+| `phrasing.py` | How the product counts things, so nothing says "1 file(s)". |
+| `ui.py` | Terminal states for the two commands the CLI has. |
+| `cli.py` | Typer commands: serve the interface, report the setup. |
+| `web/` | Loopback HTTP server and JSON API; `assets/primeicons/` is the icon font, vendored (MIT) so the page fetches nothing from the network. The page is small scripts, one job each: `base` (elements, text, the API), `menu` (the context-menu component), `menus` (what each row offers), `sidebar`, `viewer` (the middle pane when it shows a file), `diff` (how a patch is drawn and picked apart), `panels` (the right column), `actions`, `repos`, and `app` (state, rows, selection, boot). `graph.js` lays out and paints the lanes. |
 
 ---
 
-## Data location
+## What it keeps, and where
 
 | What | Where |
 | --- | --- |
-| Database | `<repo>/.gitsquid/gitsquid.db` (plus `-wal` / `-shm`), one per repository |
-| Secrets | `<repo>/.env`, read only by this app, never written to the database |
-| Repository list | `~/.config/gitsquid/repos.json` — paths only, override with `GITSQUID_CONFIG_DIR` |
-| Exports | Wherever you point `gitsquid export` |
+| The list of repositories you have opened | `~/.config/gitsquid/repos.json` — paths only, override with `GITSQUID_CONFIG_DIR` |
+| How you like to read a diff, the theme, the pane widths | Your browser's local storage |
+| Everything else | Your repository, in git, where it was already |
 
-The tool was called gitia before, so a repository indexed then keeps its `.gitia/gitia.db` and is
-used as it is; `GITIA_*` variables and `gitia-export` files are still read. Nothing needs
-migrating.
-
-`.gitsquid/` contains a `.gitignore` with `*`, so it never lands in a commit. Nothing is written
-outside the repository, and nothing leaves the machine except the excerpts sent with a proposal
-request when you have an API key configured.
-
-### Backup
-
-The database is a single file. Back it up with a copy while no command is running:
-
-```bash
-sqlite3 .gitsquid/gitsquid.db ".backup '/path/to/gitsquid-backup.db'"   # safe while in use
-gitsquid export ~/backups/gitsquid-$(date +%F).json                  # portable, human-readable
-```
-
-Restore by copying the file back, or with `gitsquid import` — import skips changes already recorded,
-so re-importing the same file twice is harmless.
-
-To delete everything GitSquid knows: `rm -rf .gitsquid/`. To delete only the demo rows:
-`gitsquid sample clear`.
+GitSquid writes nothing else. There is no database, no index, no cache to clear: uninstalling it
+leaves your repositories exactly as git left them.
 
 ---
 
 ## Permissions
 
-GitSquid asks for nothing it does not need:
-
-- **Read** every file `git ls-files` reports as tracked or untracked-but-not-ignored — your
-  `.gitignore` decides what GitSquid sees. Binaries, files over
-  `GITSQUID_MAX_FILE_BYTES`, and credential-shaped files (`.env*`, `*.pem`, `*.key`, `id_rsa`,
-  `.netrc`, …) are skipped and never indexed or sent.
-- **Write** only through git itself — `apply`, `add`, `checkout`, `commit`, `branch`, `tag`,
-  `merge`, `rebase`, `cherry-pick`, `revert`, `reset`, `stash`, `push` — only inside the
-  repository, and only after you confirm. Every path — in a patch, in a hunk, or from the
-  interface — is rejected before it reaches git if it is absolute, contains `..`, or points into
-  `.git/` or `.gitsquid/`; every branch, tag and commit id is validated the same way, so nothing from
-  the interface is ever interpreted as a git option. Anything destructive — discard, hard reset,
-  force push, force delete, dropping a stash — asks first, and lands in the audit trail.
-- **Execute** exactly one command — the `GITSQUID_TEST_COMMAND` you configured — in the repository
-  directory, with a timeout.
+- **Read** the repository through git, and the files git reports in it.
+- **Write** only through git itself — `add`, `checkout`, `commit`, `apply`, `branch`, `tag`,
+  `merge`, `rebase`, `cherry-pick`, `revert`, `reset`, `stash`, `push`, `clone` — only inside the
+  repository you opened, and only when you ask. Every path is rejected before it reaches git if it
+  is absolute, contains `..`, or points into `.git/`; every branch, tag and commit id is validated
+  the same way, so nothing from the interface is ever read as a git option. Anything destructive —
+  discard, hard reset, force push, force delete, dropping a stash — asks first.
 - **Listen** on `127.0.0.1` only while `gitsquid ui` is running, and only for requests whose `Host`
   header is a loopback name.
-- **Network** only to `api.anthropic.com`, only during `propose` / `run`, and only when
-  `ANTHROPIC_API_KEY` is set.
+- **Network** only where you point git: fetch, pull, push and clone talk to your remotes and to
+  nothing else. The page itself loads no remote asset.
 
 No analytics, no telemetry, no third-party accounts, no background process.
 
 ---
 
-## Degraded mode
-
-Without `ANTHROPIC_API_KEY`, model-generated proposals are unavailable. Nothing else changes:
-
-```bash
-gitsquid propose "fix the rounding bug" --patch-file fix.diff
-```
-
-Indexing, search, validation, `git apply`, test runs, the audit trail, revert, export, and import
-all work identically; the change is recorded with source `patch-file` instead of `model`.
-`gitsquid doctor` tells you which mode you are in. This is the only difference — the tool is a
-recording and verification harness first, and a model client second.
-
----
-
 ## Accessibility
 
-- Every state prints a text token (`[ok]`, `[fail]`, `[warn]`, `[invalid]`, `[empty]`,
-  `[working]`) as well as a colour, so nothing depends on colour perception.
-- `NO_COLOR=1` (or `GITSQUID_NO_COLOR=1`) disables colour; `--plain` prints diffs without syntax
-  highlighting for screen readers and for piping.
-- No mouse, no TUI focus traps: every action is one command. Confirmations are explicit `y/N`
-  prompts with a safe default, and `--yes` skips them for scripted use.
-- Tables carry header labels; timestamps are ISO-8601 UTC; ids are stable and short.
-- Long output is written to stdout and errors to stderr, so `2>/dev/null` and pipes behave.
+- Every terminal state prints a text token (`[ok]`, `[fail]`, `[warn]`, `[info]`) as well as a
+  colour, so nothing depends on colour perception. `NO_COLOR=1` disables colour.
+- In the page, every action is reachable from the keyboard: the graph walks with the arrow keys,
+  <kbd>Shift</kbd>+<kbd>F10</kbd> opens the menu of the selected row, and every menu walks with the
+  arrow keys. Nothing needs a mouse.
+- Status is carried by a letter as well as a colour (A, M, D, R, U), and the interface follows the
+  system's light or dark preference unless you override it.
 
 ---
 
 ## Security
 
-- Test output and rationales pass through a redactor before they are stored or displayed; API
-  keys, tokens, JWTs, and PEM private keys are replaced with `[redacted]`.
-- File contents are stored only in the local database, never in logs or the audit trail.
-- Imported JSON is treated as untrusted: format, version, types, statuses, and lengths are all
-  validated, and diffs are re-validated for path safety before they can be applied.
-- Free-text input is length-checked and stripped of control characters; search terms are converted
-  into a quoted FTS5 expression rather than interpolated.
+- The server binds `127.0.0.1` only and refuses any request whose `Host` header is not loopback,
+  which blocks DNS rebinding from a web page you might have open. The page declares a strict CSP,
+  loads no remote asset, and the server never logs request contents.
+- `git` runs with `GIT_TERMINAL_PROMPT=0`, so a remote operation fails with a readable message
+  instead of hanging on a password prompt. Credentials stay git's business: GitSquid never asks for
+  one, never stores one.
+- Every path, ref and commit id from the interface is validated before it reaches a command line,
+  and patches built in the page are re-checked for path safety before `git apply` sees them.
 
 ---
 
 ## Limitations
 
-Stated plainly, because some of them are deliberate:
-
-**Deliberately excluded** (these are what a paid product sells):
-
-- **Frontier coding model quality.** One model call, one shot, no agent loop, no self-repair, no
-  multi-file planning. A rejected or wrong patch is your problem to re-prompt.
-- **Large-context infrastructure.** Retrieval is BM25 over 80-line chunks with a hard character
-  budget (48k by default). No embeddings, no reranking, no whole-repository context.
-- **IDE-wide polish and latency.** A terminal CLI. No editor integration, no inline diff review,
-  no incremental streaming UI, no background indexing.
-
-**Other limits:**
-
-- One database per repository, and no cross-repository view: you switch between repositories,
-  you do not see them side by side. No pull requests, no code review, no issue tracking.
-- The interface stages by file or by hunk, commits, amends, branches, tags, merges, squash-merges,
-  rebases, cherry-picks, reverts, resets, stashes, fetches, pulls, pushes, and clones. It does
-  **not** resolve conflicts in an editor, rebase interactively, or manage submodules, worktrees
-  and LFS. A conflict is named and counted, and can be settled by keeping one side whole;
-  anything finer is your editor's job, then Continue or Abort from the bar.
-- Staging is per file, per hunk, or per line.
+- One repository at a time: you switch between them, you do not see them side by side. No pull
+  requests, no code review, no issue tracking.
+- The interface stages by file, by hunk or by line, commits, amends, branches, tags, merges,
+  squash-merges, rebases, cherry-picks, reverts, resets, stashes, fetches, pulls, pushes and
+  clones. It does **not** resolve conflicts in an editor, rebase interactively, or manage
+  submodules, worktrees and LFS. A conflict is named and counted, and can be settled by keeping one
+  side whole; anything finer is your editor's job, then Continue, Skip or Abort from the bar.
 - Pull is fast-forward only, on purpose: no implicit merge commit behind your back.
-- Credentials are git's business. GitSquid never asks for or stores one, and a remote operation that
-  would need an interactive prompt fails with an explanation instead of hanging.
-- No blame view, no side-by-side diff, no graph search beyond the loaded window.
+- No side-by-side diff, and no syntax highlighting inside one.
 - A repository with no commits shows an empty graph — that is the empty state, not an error.
-- `git apply` is strict: a diff generated against stale excerpts is refused rather than fuzzed in.
-- `revert` reverses the recorded patch. If you edited the same lines afterwards it will refuse,
-  and you resolve it with git.
-- Sample records describe a fictional `billing/` module and cannot be applied; they exist to show
-  the shape of the data.
-- Binary files, large files, and credential files are never indexed, so the model cannot reason
-  about them.
 
 ## Licence
 
-MIT.
+MIT. The icons are [PrimeIcons](https://github.com/primefaces/primeicons), MIT, vendored under
+`src/gitsquid/web/assets/primeicons/`.

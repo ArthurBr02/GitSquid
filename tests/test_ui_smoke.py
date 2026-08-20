@@ -62,6 +62,35 @@ class TestTheGraph:
         assert page.locator(".section").count() == 5
         assert "workshop" in page.inner_text("#repo-chip")
 
+    def test_every_graph_node_stays_centred_on_its_commit_row(self, page):
+        geometry = page.evaluate("""() => {
+          const canvas = document.querySelector("#graph-canvas");
+          const top = canvas.getBoundingClientRect().top;
+          const commitCentres = [...document.querySelectorAll("#rows li:not(.wip)")]
+            .map((row) => {
+              const box = row.getBoundingClientRect();
+              return box.top + box.height / 2 - top;
+            });
+          // the filled circles are the commits; the hollow ones are the merge, HEAD and
+          // selection rings drawn around them
+          const nodeCentres = [...new Set(
+            [...canvas.querySelectorAll(":scope > circle")]
+              .filter((circle) => circle.getAttribute("fill") !== "none")
+              .map((circle) => Number(circle.getAttribute("cy")))
+          )];
+          const rowsHeight = [...document.querySelectorAll("#rows li")]
+            .reduce((height, row) => height + row.getBoundingClientRect().height, 0);
+          return {
+            commitCentres,
+            nodeCentres,
+            rowsHeight,
+            canvasHeight: Number(canvas.getAttribute("height")),
+          };
+        }""")
+
+        assert geometry["nodeCentres"] == geometry["commitCentres"]
+        assert geometry["canvasHeight"] == geometry["rowsHeight"]
+
     def test_the_scope_can_be_narrowed_to_this_branch(self, page):
         page.click("#btn-filter")
         page.wait_for_selector(".context-menu")
