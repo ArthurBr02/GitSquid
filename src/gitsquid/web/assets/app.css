@@ -556,6 +556,7 @@ body.resizing { cursor: col-resize; user-select: none; }
 .menu-item.danger { color: var(--red); }
 .menu-item.danger:hover:not(:disabled) { background: rgba(244, 105, 108, .12); }
 .menu-item.on::after { content: "✓"; margin-left: auto; color: var(--accent); }
+.menu-header.plain { text-transform: none; letter-spacing: 0; }
 .menu-hint { margin-left: auto; font: 10.5px var(--mono); color: var(--text-faint); }
 
 /* ---------- dialogs ---------- */

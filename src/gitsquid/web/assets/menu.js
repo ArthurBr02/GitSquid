@@ -62,7 +62,7 @@ const Menu = (() => {
       }
       if (item.header) {
         const header = document.createElement("div");
-        header.className = "menu-header";
+        header.className = `menu-header${item.plain ? " plain" : ""}`;
         header.textContent = item.header;
         node.append(header);
         continue;

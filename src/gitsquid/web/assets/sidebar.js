@@ -297,7 +297,7 @@ function filterMenu() {
 function moreMenu() {
   const { samples, config } = { samples: state.data.state.samples, config: state.data.state.config };
   return [
-    { header: `GitSquid ${config.version} · git ${config.git_version}` },
+    { header: `GitSquid ${config.version} · git ${config.git_version}`, plain: true },
     { label: "Repositories…", hint: "O", run: openReposDialog },
     { label: "Refresh", hint: "R", run: () => quiet(refresh()) },
     "-",
