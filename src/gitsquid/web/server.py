@@ -249,6 +249,11 @@ class UIServer:
         finally:
             conn.close()
 
+    def search(self, query: str) -> dict:
+        rows = [asdict(commit) | {"short": commit.short}
+                for commit in gitlog.search(self.settings.repo, query[:200])]
+        return {"query": query, "commits": rows}
+
     def commit_detail(self, sha: str) -> dict:
         try:
             return gitlog.commit_detail(self.settings.repo, sha)
@@ -528,6 +533,8 @@ class _Handler(BaseHTTPRequestHandler):
             elif route == "/api/filediff":
                 self._json(HTTPStatus.OK, self.ui.file_diff(
                     (query.get("path") or [""])[0], (query.get("staged") or ["0"])[0] == "1"))
+            elif route == "/api/search":
+                self._json(HTTPStatus.OK, self.ui.search((query.get("q") or [""])[0]))
             elif route == "/api/filehistory":
                 self._json(HTTPStatus.OK, self.ui.file_history((query.get("path") or [""])[0]))
             elif route == "/api/export":

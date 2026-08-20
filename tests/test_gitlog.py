@@ -150,3 +150,41 @@ class TestCommitDetail:
     def test_an_unknown_commit_is_reported(self, repo):
         with pytest.raises(ValueError, match="No such commit"):
             gitlog.commit_detail(repo, "0" * 40)
+
+
+class TestSearch:
+    @pytest.fixture
+    def history(self, repo):
+        commit_file(repo, "facture.py", "TOTAL = 1\n", "Corrige le calcul de facture")
+        commit_file(repo, "autre.py", "A = 1\n", "Ajoute autre chose")
+        git(repo, "commit", "-q", "--allow-empty", "-m", "Note de version",
+            "--author", "Camille <camille@example.invalid>")
+        return repo
+
+    def test_a_message_is_found(self, history):
+        assert [commit.subject for commit in gitlog.search(history, "facture")] == [
+            "Corrige le calcul de facture"
+        ]
+
+    def test_the_search_ignores_case(self, history):
+        assert gitlog.search(history, "FACTURE")
+
+    def test_an_author_is_found(self, history):
+        assert [commit.subject for commit in gitlog.search(history, "camille")] == ["Note de version"]
+
+    def test_a_path_is_found_even_when_the_message_says_nothing(self, history):
+        assert [commit.subject for commit in gitlog.search(history, "facture.py")] == [
+            "Corrige le calcul de facture"
+        ]
+
+    def test_results_come_back_newest_first_and_without_duplicates(self, history):
+        found = gitlog.search(history, "a")
+        assert len(found) == len({commit.sha for commit in found})
+        assert found == sorted(found, key=lambda commit: commit.date, reverse=True)
+
+    def test_a_query_too_short_to_mean_anything_is_refused(self, history):
+        assert gitlog.search(history, "a" * 1) == []
+        assert gitlog.search(history, "  ") == []
+
+    def test_nothing_matches_nothing(self, history):
+        assert gitlog.search(history, "introuvable-xyz") == []

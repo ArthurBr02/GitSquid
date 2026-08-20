@@ -22,6 +22,7 @@ const state = {
   counts: {},
   view: null,
   limit: 80,
+  search: null,
   amend: false,
   busy: false,
 };
@@ -223,17 +224,21 @@ function renderRows() {
   const { gap, width } = Graph.measure(laid.columns, budget);
 
   wrap.style.setProperty("--lane-width", `${width}px`);
-  $("row-count").textContent = visible.length === state.rows.length
-    ? `${visible.length} row${visible.length === 1 ? "" : "s"}`
-    : `${visible.length} of ${state.rows.length}`;
+  $("row-count").textContent = state.search
+    ? `${plural(visible.length, "result")} for “${state.search.query}”`
+    : (visible.length === state.rows.length
+      ? plural(visible.length, "row")
+      : `${visible.length} of ${state.rows.length}`);
   list.setAttribute("aria-activedescendant", state.selected ? `row-${state.selected}` : "");
 
   const emptyNote = $("graph-empty");
   emptyNote.hidden = visible.length > 0;
   if (!visible.length) {
-    emptyNote.textContent = state.rows.length
-      ? `Nothing matches ${state.query ? `“${state.query}”` : `the ${FILTER_LABELS[state.filter].toLowerCase()} filter`}.`
-      : "No commit and no recorded change yet. Commit something, or use “New change” to propose your first diff.";
+    emptyNote.textContent = state.search
+      ? `No commit in this repository mentions “${state.search.query}”.`
+      : (state.rows.length
+        ? `Nothing matches ${state.query ? `“${state.query}”` : `the ${FILTER_LABELS[state.filter].toLowerCase()} filter`}.`
+        : "No commit and no recorded change yet. Commit something, or use “New change” to propose your first diff.");
   }
 
   for (const row of visible) {
@@ -1514,6 +1519,38 @@ function move(step) {
   select(visible[current === -1 ? 0 : next].key);
 }
 
+/* ---------- searching the whole history, not just the rows on screen ---------- */
+
+function searchRows() {
+  return state.search.commits.map((commit) => ({
+    ...commit, kind: "commit", key: `g${commit.sha}`, when: commit.date,
+  }));
+}
+
+async function deepSearch(query) {
+  if (query.trim().length < 2) return;
+  await quiet(withBusy(`Searching the history for “${query}”…`, async () => {
+    const payload = await api(`/api/search?q=${encodeURIComponent(query)}`);
+    state.search = { query, commits: payload.commits };
+    state.query = "";
+    state.rows = searchRows();
+    state.selected = state.rows.length ? state.rows[0].key : null;
+    $("btn-leave-search").hidden = false;
+    renderRows();
+    renderChrome();
+    if (state.selected) select(state.selected);
+  }));
+}
+
+function leaveSearch() {
+  if (!state.search) return;
+  state.search = null;
+  state.query = "";
+  $("search").value = "";
+  $("btn-leave-search").hidden = true;
+  quiet(refresh(false));
+}
+
 /* ---------- data ---------- */
 
 async function refresh(keepSelection = true) {
@@ -1523,7 +1560,7 @@ async function refresh(keepSelection = true) {
   state.data = { state: stateData, graph };
   state.worktree = worktreeData;
   state.repos = repos;
-  state.rows = buildRows();
+  state.rows = state.search ? searchRows() : buildRows();
 
   const stillThere = state.rows.some((row) => row.key === state.selected);
   if (!keepSelection || !stillThere) {
@@ -1800,9 +1837,15 @@ function bind() {
   ]);
 
   $("search").addEventListener("input", (event) => {
+    if (state.search) return;  // typing again refines nothing until you leave the results
     state.query = event.target.value.trim().toLowerCase();
     renderRows();
   });
+  $("search").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") { event.preventDefault(); deepSearch(event.target.value); }
+    if (event.key === "Escape" && state.search) { event.preventDefault(); leaveSearch(); }
+  });
+  $("btn-leave-search").addEventListener("click", leaveSearch);
 
   // One observer covers the window, the resizable panes and the scrollbar appearing.
   let paneWidth = 0;

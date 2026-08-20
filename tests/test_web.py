@@ -541,3 +541,41 @@ class TestFileActionsOverHttp:
 
     def test_the_head_message_is_exposed_for_the_amend_prefill(self, server):
         assert call(server, "/api/state")[1]["repo"]["head_message"] == "initial"
+
+
+class TestSearchOverHttp:
+    def test_the_whole_history_is_searched(self, server, repo):
+        commit_over_http(server, repo, "facture.py", "TOTAL = 1\n", "Corrige la facture")
+        status, payload = call(server, "/api/search?q=facture")
+        assert status == 200
+        assert [commit["subject"] for commit in payload["commits"]] == ["Corrige la facture"]
+
+    def test_a_query_of_one_letter_returns_nothing(self, server):
+        assert call(server, "/api/search?q=a")[1]["commits"] == []
+
+    def test_the_graph_says_how_deep_it_looked(self, server, repo):
+        for index in range(12):
+            commit_over_http(server, repo, f"step{index}.py", "X = 1\n", f"step {index}")
+        status, payload = call(server, "/api/graph?limit=10")
+        assert status == 200
+        assert len(payload["commits"]) == 10
+        assert payload["total_commits"] == 13
+        assert payload["limit"] == 10
+
+    def test_an_absurd_limit_is_clamped(self, server):
+        assert call(server, "/api/graph?limit=999999")[1]["limit"] == 5000
+        assert call(server, "/api/graph?limit=0")[1]["limit"] == 10
+
+    def test_a_conflict_can_be_settled_from_the_interface(self, server, repo):
+        commit_over_http(server, repo, "partage.py", "VALEUR = 0\n", "partage")
+        git(repo, "checkout", "-q", "-b", "cote")
+        commit_over_http(server, repo, "partage.py", "VALEUR = 2\n", "cote")
+        git(repo, "checkout", "-q", "main")
+        commit_over_http(server, repo, "partage.py", "VALEUR = 1\n", "principal")
+        git(repo, "merge", "cote")
+
+        status, payload = call(server, "/api/worktree/resolve", method="POST",
+                               body={"paths": ["partage.py"], "side": "theirs"})
+        assert status == 200, payload
+        assert (repo / "partage.py").read_text() == "VALEUR = 2\n"
+        assert call(server, "/api/worktree")[1]["conflicted"] == 0

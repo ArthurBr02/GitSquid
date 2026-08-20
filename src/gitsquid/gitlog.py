@@ -140,6 +140,33 @@ def _touched_files(repo: Path, sha: str, view: list[str]) -> list[dict]:
     return files
 
 
+def search(repo: Path, query: str, *, limit: int = 100) -> list[Commit]:
+    """Commits whose message, author or touched paths match — the whole history, not the window."""
+    query = (query or "").strip()
+    if len(query) < 2:
+        return []
+    found: dict[str, Commit] = {}
+    for match in (["--grep", query], ["--author", query], ["--all-match", "--", f"*{query}*"]):
+        args = ["log", "--all", "-i", f"--max-count={limit}", f"--pretty=format:{LOG_FORMAT}"]
+        # A path pattern goes after --, everything else is a filter on the commit itself.
+        args += match if match[0] != "--all-match" else match[1:]
+        result = run(repo, args)
+        if result.returncode != 0:
+            continue
+        for record in result.stdout.split(END):
+            fields = record.strip("\n").split(SEP)
+            if len(fields) >= 6 and fields[0] and fields[0] not in found:
+                found[fields[0]] = Commit(
+                    sha=fields[0],
+                    parents=[parent for parent in fields[1].split() if parent],
+                    author=fields[2],
+                    date=fields[3],
+                    subject=fields[4],
+                    refs=[ref.strip() for ref in fields[5].split(",") if ref.strip()],
+                )
+    return sorted(found.values(), key=lambda commit: commit.date, reverse=True)[:limit]
+
+
 def commit_detail(repo: Path, sha: str) -> dict:
     """Everything the panel shows except the patches, which are fetched one file at a time."""
     _require_sha(sha)
