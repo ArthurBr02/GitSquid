@@ -15,6 +15,7 @@ from .gitcmd import (
     require_paths,
     run,
 )
+from .phrasing import plural
 from .safety import is_sensitive_path
 
 MAX_MESSAGE_LEN = 4000
@@ -67,6 +68,20 @@ class FileEntry:
         }
 
 
+def line_counts(repo: Path) -> dict[str, dict[str, list[int]]]:
+    """Lines gained and lost per file, on each side of the index."""
+    found: dict[str, dict[str, list[int]]] = {}
+    for side, args in (("staged", ["diff", "--cached", "--numstat"]), ("unstaged", ["diff", "--numstat"])):
+        for line in run(repo, args).stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 3:
+                continue
+            added, removed, path = parts[0], parts[1], parts[-1]
+            entry = found.setdefault(path, {})
+            entry[side] = [-1, -1] if added == "-" else [int(added), int(removed)]
+    return found
+
+
 def status(repo: Path) -> list[FileEntry]:
     """Parse `git status --porcelain=v1 -z`, which is the machine-stable format."""
     result = run(repo, ["status", "--porcelain=v1", "-z", "--untracked-files=all"])
@@ -107,7 +122,7 @@ def file_diff(repo: Path, path: str, *, staged: bool) -> str:
 def stage(repo: Path, paths: list[str]) -> str:
     require_paths(paths)
     checked(repo, ["add", "--", *paths], action="Could not stage")
-    return f"Staged {len(paths)} file(s)."
+    return f"Staged {plural(len(paths), 'file')}."
 
 
 def unstage(repo: Path, paths: list[str]) -> str:
@@ -115,7 +130,7 @@ def unstage(repo: Path, paths: list[str]) -> str:
     result = run(repo, ["restore", "--staged", "--", *paths])
     if result.returncode != 0:  # no HEAD yet: fall back to the plumbing form
         checked(repo, ["rm", "--cached", "-r", "--", *paths], action="Could not unstage")
-    return f"Unstaged {len(paths)} file(s)."
+    return f"Unstaged {plural(len(paths), 'file')}."
 
 
 def discard(repo: Path, paths: list[str]) -> str:
@@ -133,7 +148,7 @@ def discard(repo: Path, paths: list[str]) -> str:
             if target.is_file():
                 target.unlink()
             removed += 1
-    return f"Discarded {len(paths)} file(s)" + (f", {removed} deleted." if removed else ".")
+    return f"Discarded {plural(len(paths), 'file')}" + (f", {removed} deleted." if removed else ".")
 
 
 def ignore(repo: Path, paths: list[str]) -> str:
@@ -150,10 +165,10 @@ def ignore(repo: Path, paths: list[str]) -> str:
     if tracked:
         run(repo, ["rm", "--cached", "-r", "--", *tracked])
         return (
-            f"Ignored {len(added)} path(s) in .gitignore. {len(tracked)} were tracked: their "
+            f"Ignored {plural(len(added), 'path')} in .gitignore. {len(tracked)} were tracked: their "
             "removal from the index is staged, and takes effect when you commit it."
         )
-    return f"Ignored {len(added)} path(s) in .gitignore."
+    return f"Ignored {plural(len(added), 'path')} in .gitignore."
 
 
 def apply_patch(repo: Path, patch: str, *, target: str) -> str:

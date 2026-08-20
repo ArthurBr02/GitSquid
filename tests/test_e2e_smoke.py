@@ -48,7 +48,7 @@ def test_core_loop_end_to_end(repo, tmp_path):
 
     indexed = gitsquid(repo, "index")
     assert indexed.exit_code == 0
-    assert "file(s) indexed" in indexed.text
+    assert "files indexed" in indexed.text
 
     # 3. Empty state before any change exists.
     assert "No change recorded yet" in gitsquid(repo, "log").text

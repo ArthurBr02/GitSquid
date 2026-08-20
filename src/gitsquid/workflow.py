@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import diffs
+from .phrasing import plural
 from .config import Settings
 from .llm import Proposal, ProposalBackend, ProposalError, ProposalRequest
 from .models import (
@@ -83,7 +84,7 @@ class ChangeService:
         self.changes.add(change)
         self.events.record(
             "proposed",
-            f"{proposal.source} proposal touching {len(change.files_touched)} file(s)",
+            f"{proposal.source} proposal touching {plural(len(change.files_touched), 'file')}",
             change_id=change.id,
         )
 

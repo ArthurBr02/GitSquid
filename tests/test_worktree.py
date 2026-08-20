@@ -370,3 +370,22 @@ class TestStashExtras:
 
         assert "Squashed" in worktree.merge(repo, "feature/squash", squash=True)
         assert entry_for(repo, "ajoute.py").staged
+
+
+class TestLineCounts:
+    def test_each_side_of_the_index_is_counted_separately(self, repo):
+        (repo / "calc.py").write_text("une ligne\n", encoding="utf-8")
+        worktree.stage(repo, ["calc.py"])
+        (repo / "calc.py").write_text("une ligne\ndeux lignes\n", encoding="utf-8")
+
+        counts = worktree.line_counts(repo)["calc.py"]
+        assert counts["staged"][0] == 1
+        assert counts["unstaged"] == [1, 0]
+
+    def test_a_binary_file_is_marked_rather_than_counted(self, repo):
+        (repo / "image.bin").write_bytes(bytes(range(256)))
+        worktree.stage(repo, ["image.bin"])
+        assert worktree.line_counts(repo)["image.bin"]["staged"] == [-1, -1]
+
+    def test_a_clean_tree_counts_nothing(self, repo):
+        assert worktree.line_counts(repo) == {}

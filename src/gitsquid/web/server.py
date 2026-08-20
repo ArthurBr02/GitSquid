@@ -15,6 +15,7 @@ from ..db import open_db
 from ..llm import AnthropicBackend, PatchFileBackend, ProposalError
 from ..models import ChangeRepo, ChangeStatus, EventLog, TestRunRepo
 from ..gitcmd import GitError, require_paths
+from ..phrasing import plural
 from ..safety import clean_text_input
 from ..workflow import ChangeService, WorkflowError
 
@@ -187,8 +188,9 @@ class UIServer:
 
     def worktree(self) -> dict:
         entries = worktree.status(self.settings.repo)
+        counts = worktree.line_counts(self.settings.repo)
         return {
-            "files": [entry.as_dict() for entry in entries],
+            "files": [entry.as_dict() | {"counts": counts.get(entry.path, {})} for entry in entries],
             "staged": sum(1 for entry in entries if entry.staged),
             "unstaged": sum(1 for entry in entries if entry.unstaged or entry.untracked),
             "conflicted": sum(1 for entry in entries if entry.conflicted),
@@ -263,7 +265,7 @@ class UIServer:
                     conn, self.settings.repo, max_file_bytes=self.settings.max_file_bytes
                 )
                 EventLog(conn).record("indexed", f"{stats.files_indexed} indexed from the interface")
-                return {"message": f"{stats.files_indexed} file(s) re-indexed, {stats.files_unchanged} unchanged.", "index": indexer.index_summary(conn)}
+                return {"message": f"{plural(stats.files_indexed, 'file')} re-indexed, {stats.files_unchanged} unchanged.", "index": indexer.index_summary(conn)}
             finally:
                 conn.close()
 
@@ -336,9 +338,9 @@ class UIServer:
                 if action == "load":
                     if sampledata.count(conn) > 0:
                         raise ApiError("Sample records are already loaded.")
-                    return {"message": f"Loaded {sampledata.load(conn)} sample change(s)."}
+                    return {"message": f"Loaded {plural(sampledata.load(conn), 'sample change')}."}
                 removed = sampledata.clear(conn)
-                return {"message": f"Deleted {removed['changes']} sample change(s)."}
+                return {"message": f"Deleted {plural(removed['changes'], 'sample change')}."}
             finally:
                 conn.close()
 
@@ -360,7 +362,7 @@ class UIServer:
             try:
                 target.write_text(json.dumps(raw), encoding="utf-8")
                 stats = portability.import_from_file(conn, target)
-                return {"message": f"Imported {stats.changes} change(s); {stats.skipped} already present."}
+                return {"message": f"Imported {plural(stats.changes, 'change')}; {stats.skipped} already present."}
             except portability.ImportError_ as exc:
                 raise ApiError(str(exc)) from exc
             finally:

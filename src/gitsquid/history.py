@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from . import gitlog
+from .phrasing import plural
 from .gitcmd import GitError, both, checked, require_branch, require_commit_ref, require_sha, run
 
 RESET_MODES = {"soft", "mixed", "hard"}
@@ -88,7 +89,7 @@ def resume(repo: Path) -> str:
         raise GitError("Nothing to continue.")
     if pending["conflicts"]:
         raise GitError(
-            f"{len(pending['conflicts'])} file(s) still conflict. Resolve and stage them first."
+            f"{plural(len(pending['conflicts']), 'file')} still conflict. Resolve and stage them first."
         )
     result = run(repo, [*_NO_EDITOR, *_CONTINUE[pending["kind"]]], timeout=180)
     _conflict_guard(repo, result, action=pending["kind"].capitalize())

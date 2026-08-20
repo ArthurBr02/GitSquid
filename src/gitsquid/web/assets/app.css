@@ -579,8 +579,13 @@ body.resizing { cursor: col-resize; user-select: none; }
 @container (max-width: 560px) { .row-side .when { display: none; } }
 @container (max-width: 430px) { .row-side .sha { display: none; } }
 
-@media (max-width: 1100px) {
-  .layout { grid-template-columns: var(--sidebar-w, 200px) 4px 1fr; }
+/* The panel holds the file list the viewer needs, so the sidebar is what gives way first. */
+@media (max-width: 1180px) {
+  .layout { grid-template-columns: minmax(320px, 1fr) 4px var(--detail-w, 42%); }
+  .sidebar, #resize-left { display: none; }
+}
+@media (max-width: 720px) {
+  .layout { grid-template-columns: 1fr; }
   .detail, #resize-right { display: none; }
 }
 

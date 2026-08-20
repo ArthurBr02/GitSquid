@@ -62,6 +62,8 @@ function relativeTime(iso) {
   return new Date(then).toISOString().slice(0, 10);
 }
 
+const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
 function splitPath(path) {
   const cut = path.lastIndexOf("/");
   return cut === -1 ? ["", path] : [path.slice(0, cut + 1), path.slice(cut + 1)];
@@ -229,8 +231,8 @@ function renderRows() {
   emptyNote.hidden = visible.length > 0;
   if (!visible.length) {
     emptyNote.textContent = state.rows.length
-      ? "No row matches this filter."
-      : "No change recorded and no commit yet. Use \u201cNew change\u201d to propose your first diff.";
+      ? `Nothing matches ${state.query ? `“${state.query}”` : `the ${FILTER_LABELS[state.filter].toLowerCase()} filter`}.`
+      : "No commit and no recorded change yet. Commit something, or use “New change” to propose your first diff.";
   }
 
   for (const row of visible) {
@@ -251,14 +253,14 @@ function renderRows() {
         el("span", { class: "row-title", text: "Uncommitted changes" }),
         el("span", { class: "tag applied", text: "WIP" }),
       );
-      side.append(el("span", { text: `${state.worktree.files.length} file(s)` }));
+      side.append(el("span", { text: plural(state.worktree.files.length, "file") }));
     } else if (row.kind === "change") {
       main.append(
         el("span", { class: `tag ${row.status}`, text: row.status }),
         el("span", { class: "row-title", text: row.task }),
         row.is_sample ? el("span", { class: "tag sample", text: "sample" }) : null,
       );
-      side.append(el("span", { text: `#${row.id}` }), el("span", { text: `${row.files.length} file(s)` }));
+      side.append(el("span", { text: `#${row.id}` }), el("span", { text: plural(row.files.length, "file") }));
     } else {
       main.append(el("span", { class: "row-title", text: row.subject || "(no message)" }));
       // Two refs at most: beyond that the subject loses more than the badges add.
@@ -357,7 +359,7 @@ function wipMenu() {
     { label: "Stage everything", disabled: !unstaged.length, run: () => worktreeAction("stage", unstaged) },
     { label: "Unstage everything", disabled: !state.worktree.staged, run: () => worktreeAction("unstage", files.filter((file) => file.staged).map((file) => file.path)) },
     { label: "Discard everything", danger: true, disabled: !paths.length,
-      run: () => { if (confirm(`Discard every edit in ${paths.length} file(s)? This cannot be undone.`)) worktreeAction("discard", paths); } },
+      run: () => { if (confirm(`Discard every edit in ${plural(paths.length, "file")}? This cannot be undone.`)) worktreeAction("discard", paths); } },
     "-",
     { label: "Stash…", run: () => stashWorkingTree() },
   ];
@@ -618,7 +620,7 @@ function renderOperation(repo) {
     el("span", { class: "op-kind", text: `${operation.kind} in progress` }),
     el("span", {
       text: blocked
-        ? `${blocked} file(s) still conflict. Resolve them, stage them, then continue.`
+        ? `${plural(blocked, "file")} still conflict. Resolve them, stage them, then continue.`
         : "Nothing conflicts any more — continue when you are ready.",
     }),
     operation.resumable ? el("button", {
@@ -672,8 +674,7 @@ function renderChrome() {
     $(id).disabled = !hasRemote;
   }
 
-  state.counts = { ...counts, all: total + state.data.graph.commits.length,
-    commits: state.data.graph.commits.length };
+  state.counts = { ...counts, all: state.rows.length, commits: state.data.graph.commits.length };
 }
 
 function filterMenu() {
@@ -720,6 +721,7 @@ function worktreeContext(staged) {
       path: file.path,
       status: staged ? file.index_code : (file.untracked ? "A" : file.work_code),
       untracked: file.untracked,
+      counts: file.counts,
     }));
   return {
     kind: "worktree",
@@ -797,6 +799,13 @@ function markOpenFile() {
   for (const row of document.querySelectorAll(".file-list .file-row")) {
     row.setAttribute("aria-current", row.dataset.path === open ? "true" : "false");
   }
+}
+
+/* An untracked file has no diff to count: every line of it is new. */
+function lineCounts(entry, staged) {
+  const pair = (entry.counts || {})[staged ? "staged" : "unstaged"];
+  if (!pair) return {};
+  return pair[0] < 0 ? { binary: true } : { added: pair[0], removed: pair[1] };
 }
 
 function fileStats(entry) {
@@ -890,6 +899,7 @@ function renderViewer() {
   }
   const singleFile = Boolean(path);
   body.append(renderDiff(diff, context.hunks ? context.hunks(entry) : null, { headers: !singleFile }));
+  if (!body.contains(document.activeElement)) body.scrollTop = 0;
   if (truncated) {
     body.append(el("p", { class: "banner warn", text: "This patch is very large and was truncated for display." }));
   }
@@ -947,14 +957,25 @@ function hunkBar(file, hunk, actions) {
 }
 
 /* `actions` is set only for a working-tree file, where a single hunk can be staged. */
+const MAX_DIFF_LINES = 4000;
+
 function renderDiff(diff, actions = null, { headers = true } = {}) {
   const box = el("pre", { class: "diff" });
+  let budget = MAX_DIFF_LINES;
   for (const file of parseDiff(diff)) {
+    if (budget <= 0) break;
     if (headers) for (const line of file.header) box.append(diffLine(line, "meta", ""));
     for (const hunk of file.hunks) {
       if (actions) box.append(hunkBar(file, hunk, actions));
       let oldLine = 0;
       let newLine = 0;
+      if ((budget -= hunk.lines.length) <= 0) {
+        box.append(el("div", { class: "meta" }, [
+          el("span", { class: "ln", "aria-hidden": "true", text: "" }),
+          el("span", { class: "tx", text: "… the rest of this patch is not shown. Open a file on its own to read it in full." }),
+        ]));
+        break;
+      }
       for (const line of hunk.lines) {
         if (line.startsWith("@@")) {
           const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
@@ -997,7 +1018,7 @@ function renderWorktreeDetail() {
   detail.append(el("div", { class: "detail-head" }, [
     el("h2", { text: "Uncommitted changes" }),
     el("div", { class: "detail-sub" }, [
-      el("span", { text: `${files.length} file(s)` }),
+      el("span", { text: plural(files.length, "file") }),
       el("span", { text: `${staged.length} staged` }),
       el("span", { text: `${unstaged.length} unstaged` }),
       state.worktree.conflicted ? el("span", { class: "tag failed", text: "conflicts" }) : null,
@@ -1029,7 +1050,7 @@ function renderWorktreeDetail() {
       el("button", {
         type: "button", class: "btn primary", disabled: !state.amend && staged.length === 0,
         onclick: () => commitStaged(),
-        text: state.amend ? "Amend the last commit" : `Commit ${staged.length} file(s)`,
+        text: state.amend ? "Amend the last commit" : `Commit ${plural(staged.length, "file")}`,
       }),
       el("label", { class: "amend-toggle", for: "commit-amend",
         title: repo.head_message ? "Replace the last commit instead of adding one" : "There is no commit to amend yet" },
@@ -1060,10 +1081,11 @@ function renderWorktreeDetail() {
     for (const entry of list) {
       const row = fileListRow(context, {
         path: entry.path,
-        status: isStaged ? entry.index_code : (entry.untracked ? "?" : entry.work_code),
+        status: isStaged ? entry.index_code : (entry.untracked ? "A" : entry.work_code),
         original: entry.original,
         sensitive: entry.sensitive,
         untracked: entry.untracked,
+        ...lineCounts(entry, isStaged),
       }, [
         el("button", {
           type: "button", class: "btn tiny ghost stage-btn",
@@ -1097,7 +1119,7 @@ async function openFileHistory(path) {
   detail.append(el("div", { class: "detail-head" }, [
     el("h2", { text: path }),
     el("div", { class: "detail-sub" }, [
-      el("span", { text: `${payload.commits.length} commit(s)` }),
+      el("span", { text: plural(payload.commits.length, "commit") }),
       el("button", { type: "button", class: "btn tiny ghost", onclick: () => select("wip"), text: "Back to the working tree" }),
     ]),
   ]));
@@ -1429,6 +1451,9 @@ function openPropose() {
     ? `The task and the retrieved excerpts go to ${state.data.state.config.model}. Paste a diff below to skip the model.`
     : "No API key configured, so a diff is required. GitSquid validates, applies, tests and records it exactly the same way.";
   $("patch-requirement").textContent = available ? "optional" : "required";
+  $("propose-patch").placeholder = available
+    ? "Leave empty to ask the model. Paste a diff to skip the model entirely."
+    : "Paste the unified diff to record — git apply must accept it.";
   $("propose-error").hidden = true;
   $("propose-modal").showModal();
   $("propose-task").focus();

@@ -6,6 +6,7 @@ from pathlib import Path
 import typer
 
 from . import diffs, indexer, portability, sampledata, ui
+from .phrasing import plural
 from .config import ConfigError, Settings, load_settings
 from .db import SchemaError, open_db
 from .llm import AnthropicBackend, PatchFileBackend, ProposalBackend, ProposalError
@@ -145,7 +146,7 @@ def index(
         )
         return
     ui.ok(
-        f"{stats.files_indexed} file(s) indexed, {stats.files_unchanged} unchanged, "
+        f"{plural(stats.files_indexed, 'file')} indexed, {stats.files_unchanged} unchanged, "
         f"{stats.files_skipped} skipped, {stats.files_removed} removed."
     )
     ui.info(f"Index now holds {summary['files']:,} files and {summary['chunks']:,} chunks.")
@@ -203,7 +204,7 @@ def _render_proposal(outcome, *, plain: bool) -> None:
             ("Source", str(change.source)),
             ("Model", change.model or "none (patch file)"),
             ("Files", ", ".join(change.files_touched) or "none"),
-            ("Context", f"{outcome.context.chars:,} chars from {len(outcome.context.files)} file(s)"),
+            ("Context", f"{outcome.context.chars:,} chars from {plural(len(outcome.context.files), 'file')}"),
         ],
         title="Proposal",
     )
@@ -588,7 +589,7 @@ def export_command(
     if count == 0:
         ui.empty(f"Wrote {path}, but there was nothing to export yet.")
         return
-    ui.ok(f"Exported {count} change(s) to {path}.")
+    ui.ok(f"Exported {plural(count, 'change')} to {path}.")
 
 
 @app.command(name="import")
@@ -607,7 +608,7 @@ def import_command(
         raise typer.Exit(EXIT_INVALID) from exc
     conn.close()
     ui.ok(
-        f"Imported {stats.changes} change(s), {stats.test_runs} test run(s); "
+        f"Imported {plural(stats.changes, 'change')}, {plural(stats.test_runs, 'test run')}; "
         f"{stats.skipped} already present."
     )
 
@@ -623,7 +624,7 @@ def sample_load(repo: Path = typer.Option(None, "--repo")) -> None:
         raise typer.Exit(0)
     created = sampledata.load(conn)
     conn.close()
-    ui.ok(f"Loaded {created} sample change(s), each flagged SAMPLE.")
+    ui.ok(f"Loaded {plural(created, 'sample change')}, each flagged SAMPLE.")
     ui.info("Remove them at any time with `gitsquid sample clear`.")
 
 
@@ -638,7 +639,7 @@ def sample_clear(repo: Path = typer.Option(None, "--repo")) -> None:
         ui.empty("No sample record to delete.")
         return
     ui.ok(
-        f"Deleted {removed['changes']} sample change(s), {removed['test_runs']} test run(s), "
+        f"Deleted {plural(removed['changes'], 'sample change')}, {plural(removed['test_runs'], 'test run')}, "
         f"{removed['events']} event(s)."
     )
 
