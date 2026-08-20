@@ -19,18 +19,17 @@ function el(tag, props = {}, children = []) {
     else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
     else node.setAttribute(key, value === true ? "" : String(value));
   }
-  for (const child of [].concat(children)) {
-    if (child === null || child === undefined || child === false) continue;
-    node.append(child.nodeType ? child : document.createTextNode(String(child)));
-  }
-  return node;
+  return fill(node, children);
 }
 
 const $ = (id) => document.getElementById(id);
 
-/* Node.append() turns a null child into the text "null"; el() skips it. This does too. */
+/* A child that is null, undefined or false is a branch not taken — Node.append() would
+   write it out as the text "null". */
+const renderable = (child) => child !== null && child !== undefined && child !== false;
+
 const fill = (node, ...children) => {
-  node.append(...children.flat().filter((child) => child !== null && child !== undefined && child !== false));
+  node.append(...children.flat().filter(renderable).map((child) => (child.nodeType ? child : String(child))));
   return node;
 };
 const clear = (node) => { while (node.firstChild) node.firstChild.remove(); return node; };
