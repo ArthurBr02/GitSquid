@@ -4,11 +4,19 @@
    it does. */
 
 async function worktreeAction(action, paths, extra = {}) {
+  // Staging one file should not close the file you were reading.
+  const open = state.view && state.view.context.kind === "worktree" ? { ...state.view } : null;
   await quiet(withBusy(`Running ${action}…`, async () => {
     const result = await post(`/api/worktree/${action}`, { paths, ...extra });
     toast("ok", result.message);
-    closeViewer();
     await refresh();
+    if (!open) return;
+    // The file may have crossed the index: follow it rather than closing on it.
+    const holding = [worktreeContext(open.context.staged), worktreeContext(!open.context.staged)]
+      .find((context) => context.files.some((file) => file.path === open.path));
+    if (!holding) closeViewer();
+    else if (open.mode === "blame") await openBlame(holding, open.path);
+    else await openFileView(holding, open.path);
   }));
 }
 
