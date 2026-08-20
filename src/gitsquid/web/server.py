@@ -202,11 +202,13 @@ class UIServer:
             "conflicted": sum(1 for entry in entries if entry.conflicted),
         }
 
-    def file_diff(self, path: str, staged: bool, ignore_whitespace: bool = False) -> dict:
+    def file_diff(self, path: str, staged: bool, ignore_whitespace: bool = False,
+                  context: int = 3) -> dict:
         try:
             return {"path": path, "staged": staged,
                     "diff": worktree.file_diff(self.settings.repo, path, staged=staged,
-                                               ignore_whitespace=ignore_whitespace)}
+                                               ignore_whitespace=ignore_whitespace,
+                                               context=context)}
         except GitError as exc:
             raise ApiError(str(exc)) from exc
 
@@ -261,10 +263,11 @@ class UIServer:
         except ValueError as exc:
             raise ApiError(str(exc)) from exc
 
-    def commit_patch(self, sha: str, path: str, ignore_whitespace: bool = False) -> dict:
+    def commit_patch(self, sha: str, path: str, ignore_whitespace: bool = False,
+                     context: int = 3) -> dict:
         try:
             return gitlog.commit_patch(self.settings.repo, sha, path or None,
-                                       ignore_whitespace=ignore_whitespace)
+                                       ignore_whitespace=ignore_whitespace, context=context)
         except ValueError as exc:
             raise ApiError(str(exc)) from exc
 
@@ -449,6 +452,11 @@ def _change_row(change) -> dict:
     }
 
 
+def _int(query: dict, key: str, default: int) -> int:
+    raw = (query.get(key) or [""])[0]
+    return int(raw) if raw.isdigit() else default
+
+
 def _string(payload: dict, key: str) -> str:
     value = payload.get(key)
     if not isinstance(value, str):
@@ -535,7 +543,7 @@ class _Handler(BaseHTTPRequestHandler):
             elif route == "/api/filediff":
                 self._json(HTTPStatus.OK, self.ui.file_diff(
                     (query.get("path") or [""])[0], (query.get("staged") or ["0"])[0] == "1",
-                    (query.get("ws") or ["0"])[0] == "1"))
+                    (query.get("ws") or ["0"])[0] == "1", _int(query, "ctx", 3)))
             elif route == "/api/search":
                 self._json(HTTPStatus.OK, self.ui.search((query.get("q") or [""])[0]))
             elif route == "/api/filehistory":
@@ -557,7 +565,7 @@ class _Handler(BaseHTTPRequestHandler):
                 elif len(parts) == 2 and parts[1] == "patch":
                     self._json(HTTPStatus.OK, self.ui.commit_patch(
                         parts[0], (query.get("path") or [""])[0],
-                        (query.get("ws") or ["0"])[0] == "1"))
+                        (query.get("ws") or ["0"])[0] == "1", _int(query, "ctx", 3)))
                 else:
                     self._json(HTTPStatus.NOT_FOUND, {"error": "Not found."})
             else:

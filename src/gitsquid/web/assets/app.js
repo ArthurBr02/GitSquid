@@ -23,7 +23,11 @@ const state = {
   view: null,
   painting: null,
   limit: 80,
-  diffView: { wrap: recall("diff.wrap", "off") === "on", space: recall("diff.space", "off") === "on" },
+  diffView: {
+    wrap: recall("diff.wrap", "off") === "on",
+    space: recall("diff.space", "off") === "on",
+    context: Number(recall("diff.context", "3")) || 3,
+  },
   search: null,
   amend: false,
   busy: false,
@@ -721,6 +725,7 @@ function renderOperation(repo) {
 /* The top bar, the filter chip and the status bar: everything that frames the graph. */
 function renderChrome() {
   const { repo, config, index, counts, total_changes: total } = state.data.state;
+  document.title = `${repo.name} — GitSquid`;
   $("repo-name").textContent = repo.name;
   $("repo-branch").textContent = repo.branch;
   $("db-path").textContent = config.database;
@@ -832,7 +837,7 @@ function commitContext(commit) {
     kind: "commit",
     where: commit.short,
     files: commit.files,
-    fetch: (path) => api(`/api/commits/${commit.sha}/patch?path=${encodeURIComponent(path)}${whitespaceFlag()}`),
+    fetch: (path) => api(`/api/commits/${commit.sha}/patch?path=${encodeURIComponent(path)}${readingFlags()}`),
   };
 }
 
@@ -850,7 +855,7 @@ function worktreeContext(staged) {
     staged,
     where: staged ? "staged" : "working tree",
     files,
-    fetch: (path) => api(`/api/filediff?path=${encodeURIComponent(path)}&staged=${staged ? 1 : 0}${whitespaceFlag()}`),
+    fetch: (path) => api(`/api/filediff?path=${encodeURIComponent(path)}&staged=${staged ? 1 : 0}${readingFlags()}`),
     hunks: (entry) => (entry && !entry.untracked ? { staged } : null),
   };
 }
@@ -886,7 +891,8 @@ function fileStatusOf(file) {
   return "M";
 }
 
-const whitespaceFlag = () => (state.diffView.space ? "&ws=1" : "");
+const readingFlags = () =>
+  `${state.diffView.space ? "&ws=1" : ""}&ctx=${state.diffView.context}`;
 
 /* How the diff is read, not what it says: kept between sessions. */
 function diffViewMenu() {
@@ -900,6 +906,16 @@ function diffViewMenu() {
     { header: "Reading" },
     { label: "Wrap long lines", className: state.diffView.wrap ? "on" : "", run: toggle("wrap", false) },
     { label: "Ignore whitespace", className: state.diffView.space ? "on" : "", run: toggle("space", true) },
+    { header: "Context around a change" },
+    ...[3, 10, 25].map((lines) => ({
+      label: plural(lines, "line"),
+      className: state.diffView.context === lines ? "on" : "",
+      run: () => {
+        state.diffView.context = lines;
+        remember("diff.context", String(lines));
+        if (state.view) openFileView(state.view.context, state.view.path);
+      },
+    })),
   ];
 }
 
@@ -1785,6 +1801,21 @@ function renderRepoList() {
   }
 }
 
+function repoMenu() {
+  const known = state.repos.repos.filter((repo) => repo.exists);
+  return [
+    { header: "Repositories" },
+    ...known.slice(0, 8).map((repo) => ({
+      label: repo.name,
+      hint: repo.path === state.repos.active ? "open" : "",
+      className: repo.path === state.repos.active ? "on" : "",
+      run: () => { if (repo.path !== state.repos.active) openRepo(repo.path); },
+    })),
+    "-",
+    { label: "Open another…", hint: "O", run: openReposDialog },
+  ];
+}
+
 function openReposDialog() {
   $("repo-error").hidden = true;
   renderRepoList();
@@ -1905,7 +1936,7 @@ function bind() {
   $("import-cancel").addEventListener("click", () => $("import-modal").close());
   $("ask-cancel").addEventListener("click", () => $("ask-modal").close());
   $("help-close").addEventListener("click", () => $("help-modal").close());
-  $("repo-chip").addEventListener("click", openReposDialog);
+  $("repo-chip").addEventListener("click", (event) => Menu.show(event, repoMenu()));
   $("repos-close").addEventListener("click", () => $("repos-modal").close());
   $("btn-more").addEventListener("click", (event) => Menu.show(event, moreMenu()));
   window.addEventListener("focus", refreshOnFocus);

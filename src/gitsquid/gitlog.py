@@ -211,11 +211,15 @@ def commit_detail(repo: Path, sha: str) -> dict:
     }
 
 
-def commit_patch(repo: Path, sha: str, path: str | None = None, *, ignore_whitespace: bool = False) -> dict:
+def commit_patch(
+    repo: Path, sha: str, path: str | None = None, *,
+    ignore_whitespace: bool = False, context: int = 3,
+) -> dict:
     """The patch of one file in a commit — or of the whole commit when no path is given."""
     _require_sha(sha)
     parents = run(repo, ["show", "-s", "--format=%P", sha]).stdout.split()
-    args = ["show", *_merge_view(parents), "--no-color", "--format=", "-M", sha]
+    args = ["show", *_merge_view(parents), "--no-color", "--format=", "-M",
+            f"-U{max(0, min(context, 100))}", sha]
     if ignore_whitespace:
         args.append("-w")
     if path:
