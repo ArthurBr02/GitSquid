@@ -98,9 +98,9 @@ it is a local tool for one person. Three columns, one job each:
   curve per parent. Click a file anywhere in the interface and the graph gives way to that file's
   diff, full width, with <kbd>↑</kbd> <kbd>↓</kbd> to walk the other files of the same commit and
   <kbd>Esc</kbd> to come back.
-- **Right — what is selected.** A commit shows its message, then its files with their status letter
-  and the lines each one gained and lost — never the whole patch at once, which is what makes a
-  27-file merge readable. A recorded change shows its rationale, its files, its test runs and its
+- **Right — what is selected.** A commit shows its message, then its files — grouped by folder,
+  with their status letter and the lines each one gained and lost — never the whole patch at once,
+  which is what makes a 27-file merge readable. A recorded change shows its rationale, its files, its test runs and its
   audit trail. The working tree shows the commit box, with an **Amend** toggle, and the files
   grouped into conflicted, staged and unstaged.
 

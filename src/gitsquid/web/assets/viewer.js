@@ -86,6 +86,8 @@ function diffViewMenu() {
       : { label: "Blame", hint: "who wrote what",
           disabled: !view || !view.path || isUntracked(view.context, view.path),
           run: () => openBlame(view.context, view.path) },
+    { label: "Copy this patch", disabled: !view || !view.diff,
+      run: () => copy(view.diff, "Patch") },
     { header: "Reading" },
     { label: "Wrap long lines", className: state.diffView.wrap ? "on" : "", run: toggle("wrap", false) },
     { label: "Ignore whitespace", className: state.diffView.space ? "on" : "", run: toggle("space", true) },
@@ -216,7 +218,7 @@ function commonRoot(directories) {
   return root.length > 12 ? `${root}/` : "";
 }
 
-function renderFileList(context, files, label) {
+function renderFileList(context, files, label, decorate = null) {
   const groups = new Map();
   for (const entry of files) {
     const [dir] = splitPath(entry.path);
@@ -232,8 +234,10 @@ function renderFileList(context, files, label) {
         text: dir.slice(root.length).replace(/\/$/, "") || "." }));
     }
     for (const entry of entries) {
-      list.append(fileListRow(context,
-        dir ? { ...entry, display: splitPath(entry.path)[1], nested: true } : entry));
+      const shaped = dir ? { ...entry, display: splitPath(entry.path)[1], nested: true } : entry;
+      const own = decorate ? decorate(entry) : null;
+      const row = fileListRow(context, shaped, own ? own.extras : []);
+      list.append(own ? Menu.attach(row, own.menu) : row);
     }
   }
   return root

@@ -85,16 +85,17 @@ function renderWorktreeDetail() {
       group.append(el("p", { class: "tree-empty", style: "padding:8px 16px",
         text: isStaged ? "Nothing staged yet." : "No unstaged edit." }));
     }
-    const listBox = el("div", { class: "file-list", role: "listbox", "aria-label": `${label} files` });
-    for (const entry of list) {
-      const row = fileListRow(context, {
-        path: entry.path,
-        status: entry.conflicted ? "U" : (isStaged ? entry.index_code : (entry.untracked ? "A" : entry.work_code)),
-        original: entry.original,
-        sensitive: entry.sensitive,
-        untracked: entry.untracked,
-        ...(entry.conflicted ? {} : lineCounts(entry, isStaged)),
-      }, [
+    const shaped = list.map((entry) => ({
+      path: entry.path,
+      status: entry.conflicted ? "U" : (isStaged ? entry.index_code : (entry.untracked ? "A" : entry.work_code)),
+      original: entry.original,
+      sensitive: entry.sensitive,
+      untracked: entry.untracked,
+      source: entry,
+      ...(entry.conflicted ? {} : lineCounts(entry, isStaged)),
+    }));
+    const listBox = renderFileList(context, shaped, `${label} files`, (entry) => ({
+      extras: [
         el("button", {
           type: "button", class: "btn tiny ghost stage-btn",
           "aria-label": `${isConflict ? "Mark resolved" : isStaged ? "Unstage" : "Stage"} ${entry.path}`,
@@ -103,11 +104,11 @@ function renderWorktreeDetail() {
         }),
         el("button", {
           type: "button", class: "row-menu", "aria-label": `Actions for ${entry.path}`,
-          onclick: (event) => { event.stopPropagation(); Menu.show(event, fileMenu(entry, isStaged)); },
+          onclick: (event) => { event.stopPropagation(); Menu.show(event, fileMenu(entry.source, isStaged)); },
         }, ["⋯"]),
-      ]);
-      listBox.append(Menu.attach(row, () => fileMenu(entry, isStaged)));
-    }
+      ],
+      menu: () => fileMenu(entry.source, isStaged),
+    }));
     group.append(listBox);
     detail.append(group);
   }
