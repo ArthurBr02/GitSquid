@@ -206,10 +206,6 @@ function commitHead(commit, menu, context) {
     ]),
     el("div", { class: "detail-actions" }, [
       el("button", {
-        type: "button", class: "btn ghost", "aria-haspopup": "menu",
-        onclick: (event) => Menu.show(event, menu()),
-      }, ["Actions", icon("chevron-down", 12)]),
-      el("button", {
         type: "button", class: "btn ghost",
         onclick: () => openFileView({ ...context, files: [] }, ""), text: "Whole patch",
       }),
