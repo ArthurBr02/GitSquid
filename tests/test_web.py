@@ -562,6 +562,9 @@ class TestSearchOverHttp:
         assert payload["total_commits"] == 13
         assert payload["limit"] == 10
 
+    def test_a_limit_that_is_not_a_number_falls_back(self, server):
+        assert call(server, "/api/graph?limit=abc")[1]["limit"] == 80
+
     def test_an_absurd_limit_is_clamped(self, server):
         assert call(server, "/api/graph?limit=999999")[1]["limit"] == 5000
         assert call(server, "/api/graph?limit=0")[1]["limit"] == 10

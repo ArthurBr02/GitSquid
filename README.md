@@ -106,8 +106,9 @@ it is a local tool for one person. Three columns, one job each:
 
 The top bar holds the repository chip — every registered repository, each with its own database,
 index, `.env` and history, plus **Clone a repository…** for one you do not have yet — then Fetch,
-Pull, Push with their ahead/behind counts, and **New change**. Everything rare lives behind the **⋯** menu: re-index, export, import, sample records,
-the repository list, the shortcuts. A right click on Push offers a force push with lease. The page
+Pull, Push with their ahead/behind counts, and **New change**. Everything rare lives behind the
+**⋯** menu: re-index, export, import, sample records, the repository list, the appearance, the
+shortcuts. A right click on Push offers a force push with lease. The page
 refreshes itself when you come back to the window, so what your editor did shows up without asking.
 
 **What a right click offers.** On a commit: check it out, branch from it, tag it, cherry-pick it,
@@ -129,9 +130,9 @@ revert.
   soft reset onto its parent that brings the work back staged.
 - **Appearance** — dark, light, or whatever the system asks for.
 - **Interrupted operations** — when a merge, rebase, cherry-pick or revert stops on a conflict, a
-  bar names it, counts the files that still conflict, and offers **Continue** (once none do) or
-  **Abort**. The conflicted files get their own group in the panel, and each can be settled by
-  keeping your side or the incoming side whole.
+  bar names it, counts the files that still conflict, and offers **Continue** (once none do),
+  **Skip** for the commit being replayed, or **Abort**. The conflicted files get their own group in
+  the panel, and each can be settled by keeping your side or the incoming side whole.
 - **File history** — the commits that touched one file, renames followed, from its context menu.
 - **Blame** — who last touched each line, from the same menus; a line's commit is one click away.
 - **Remotes** — add or remove one from the sidebar, so a repository that starts without a remote

@@ -579,7 +579,7 @@ class _Handler(BaseHTTPRequestHandler):
             elif route == "/api/state":
                 self._json(HTTPStatus.OK, self.ui.state())
             elif route == "/api/graph":
-                self._json(HTTPStatus.OK, self.ui.graph(int((query.get("limit") or ["80"])[0])))
+                self._json(HTTPStatus.OK, self.ui.graph(_int(query, "limit", 80)))
             elif route == "/api/worktree":
                 self._json(HTTPStatus.OK, self.ui.worktree())
             elif route == "/api/repos":
