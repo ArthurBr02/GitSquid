@@ -401,11 +401,16 @@ body.resizing { cursor: col-resize; user-select: none; }
 }
 .diff div { display: flex; gap: 0; padding: 0; }
 .diff .ln {
-  flex: 0 0 auto; width: 44px; padding-right: 10px;
+  flex: 0 0 auto; width: 42px; padding-right: 9px;
   text-align: right; color: var(--text-faint);
   background: rgba(255, 255, 255, .02);
   user-select: none;
 }
+.diff .ln.new { border-right: 1px solid var(--line-soft); }
+/* What changed inside a rewritten line, so the eye does not diff it by hand. */
+.diff .ink { border-radius: 3px; padding: 0 1px; }
+.diff .add .ink { background: rgba(87, 207, 148, .28); }
+.diff .del .ink { background: rgba(244, 105, 108, .28); }
 .diff .tx { flex: 1 1 auto; padding: 0 12px; white-space: pre; }
 .diff .add { background: rgba(87, 207, 148, .1); color: #96e0bb; }
 .diff .del { background: rgba(244, 105, 108, .1); color: #ffa8a8; }

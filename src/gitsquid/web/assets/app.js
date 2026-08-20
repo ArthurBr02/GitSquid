@@ -279,7 +279,7 @@ function renderRows() {
       );
     }
     side.append(
-      el("span", { class: "relative when", text: relativeTime(row.when) }),
+      el("span", { class: "relative when", title: new Date(row.when).toLocaleString(), text: relativeTime(row.when) }),
       el("button", {
         type: "button", class: "row-menu", "aria-label": "Actions for this row",
         onclick: (event) => { event.stopPropagation(); select(row.key); Menu.show(event, rowMenu(row)); },
@@ -976,11 +976,38 @@ function parseDiff(text) {
   return files;
 }
 
-function diffLine(text, kind, number) {
+function diffLine(kind, oldNumber, newNumber, content) {
   return el("div", { class: kind }, [
-    el("span", { class: "ln", "aria-hidden": "true", text: number }),
-    el("span", { class: "tx", text: text || " " }),
+    el("span", { class: "ln old", "aria-hidden": "true", text: oldNumber }),
+    el("span", { class: "ln new", "aria-hidden": "true", text: newNumber }),
+    el("span", { class: "tx" }, content),
   ]);
+}
+
+/* What actually changed inside a rewritten line, when it is a small part of it. */
+function inlineParts(before, after) {
+  const shortest = Math.min(before.length, after.length);
+  let head = 0;
+  while (head < shortest && before[head] === after[head]) head += 1;
+  let tail = 0;
+  while (tail < shortest - head
+    && before[before.length - 1 - tail] === after[after.length - 1 - tail]) tail += 1;
+
+  const middle = [before.slice(head, before.length - tail), after.slice(head, after.length - tail)];
+  if (!middle[0] && !middle[1]) return null;
+  // Highlighting the whole line says nothing the colour of the line did not already say.
+  if (middle[0].length > before.length * 0.7 && middle[1].length > after.length * 0.7) return null;
+  return [head, tail];
+}
+
+function markedLine(text, cut) {
+  if (!cut) return [text];
+  const [head, tail] = cut;
+  return [
+    text.slice(0, head + 1),
+    el("span", { class: "ink", text: text.slice(head + 1, text.length - tail) }),
+    text.slice(text.length - tail),
+  ];
 }
 
 function hunkBar(file, hunk, actions) {
@@ -1000,40 +1027,57 @@ function hunkBar(file, hunk, actions) {
     })));
 }
 
-/* `actions` is set only for a working-tree file, where a single hunk can be staged. */
+/* A run of removed lines followed by as many added ones is one edit, read line by line. */
+function renderRewrite(box, removed, added, numbers) {
+  const paired = removed.length === added.length;
+  removed.forEach((line, index) => {
+    const cut = paired ? inlineParts(line.slice(1), added[index].slice(1)) : null;
+    box.append(diffLine("del", String(numbers.old++), "", markedLine(line, cut)));
+  });
+  added.forEach((line, index) => {
+    const cut = paired ? inlineParts(removed[index].slice(1), line.slice(1)) : null;
+    box.append(diffLine("add", "", String(numbers.new++), markedLine(line, cut)));
+  });
+}
+
 const MAX_DIFF_LINES = 4000;
 
+/* `actions` is set only for a working-tree file, where a single hunk can be staged. */
 function renderDiff(diff, actions = null, { headers = true } = {}) {
   const box = el("pre", { class: "diff" });
   let budget = MAX_DIFF_LINES;
   for (const file of parseDiff(diff)) {
     if (budget <= 0) break;
-    if (headers) for (const line of file.header) box.append(diffLine(line, "meta", ""));
+    if (headers) for (const line of file.header) box.append(diffLine("meta", "", "", [line]));
     for (const hunk of file.hunks) {
       if (actions) box.append(hunkBar(file, hunk, actions));
-      let oldLine = 0;
-      let newLine = 0;
+      const numbers = { old: 0, new: 0 };
       if ((budget -= hunk.lines.length) <= 0) {
-        box.append(el("div", { class: "meta" }, [
-          el("span", { class: "ln", "aria-hidden": "true", text: "" }),
-          el("span", { class: "tx", text: "… the rest of this patch is not shown. Open a file on its own to read it in full." }),
+        box.append(diffLine("meta", "", "", [
+          "\u2026 the rest of this patch is not shown. Open a file on its own to read it in full.",
         ]));
         break;
       }
-      for (const line of hunk.lines) {
+      const lines = hunk.lines;
+      for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
         if (line.startsWith("@@")) {
           const match = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
-          if (match) { oldLine = Number(match[1]); newLine = Number(match[2]); }
-          box.append(diffLine(line, "hunk", ""));
-        } else if (line.startsWith("+")) {
-          box.append(diffLine(line, "add", String(newLine++)));
+          if (match) { numbers.old = Number(match[1]); numbers.new = Number(match[2]); }
+          box.append(diffLine("hunk", "", "", [line]));
         } else if (line.startsWith("-")) {
-          box.append(diffLine(line, "del", String(oldLine++)));
+          const removed = [];
+          const added = [];
+          while (index < lines.length && lines[index].startsWith("-")) removed.push(lines[index++]);
+          while (index < lines.length && lines[index].startsWith("+")) added.push(lines[index++]);
+          index -= 1;
+          renderRewrite(box, removed, added, numbers);
+        } else if (line.startsWith("+")) {
+          box.append(diffLine("add", "", String(numbers.new++), [line]));
         } else if (line.startsWith("\\")) {
-          box.append(diffLine(line, "meta", ""));
+          box.append(diffLine("meta", "", "", [line]));
         } else {
-          box.append(diffLine(line, "", String(newLine++)));
-          oldLine++;
+          box.append(diffLine("", String(numbers.old++), String(numbers.new++), [line || " "]));
         }
       }
     }
