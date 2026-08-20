@@ -8,7 +8,7 @@ const path = require("path");
 const source = fs.readFileSync(
   path.join(__dirname, "..", "src", "gitsquid", "web", "assets", "viewer.js"), "utf8",
 );
-const exposed = new Function(`${source}\nreturn { parseDiff, inlineParts, filePathOf, fileStatusOf };`)();
+const exposed = new Function(`${source}\nreturn { parseDiff, inlineParts, filePathOf, fileStatusOf, commonRoot };`)();
 
 let input = "";
 process.stdin.setEncoding("utf8");
@@ -23,6 +23,10 @@ process.stdin.on("end", () => {
       hunks: file.hunks.map((hunk) => hunk.lines),
     }));
     process.stdout.write(JSON.stringify({ files }));
+    return;
+  }
+  if (request.op === "root") {
+    process.stdout.write(JSON.stringify({ root: exposed.commonRoot(request.directories) }));
     return;
   }
   process.stdout.write(JSON.stringify({ cut: exposed.inlineParts(request.before, request.after) }));

@@ -204,6 +204,43 @@ function fileStats(entry) {
 }
 
 /* The same file row in a commit, in a change, and in the working tree. */
+/* Twenty files under src/main/java/com/example/thing/ are twenty names, not twenty paths:
+   the folder is said once, and the rows carry what tells them apart. */
+function commonRoot(directories) {
+  const parts = directories.filter(Boolean).map((dir) => dir.replace(/\/$/, "").split("/"));
+  if (parts.length < 2) return "";
+  const shortest = Math.min(...parts.map((one) => one.length));
+  let shared = 0;
+  while (shared < shortest && parts.every((one) => one[shared] === parts[0][shared])) shared += 1;
+  const root = parts[0].slice(0, shared).join("/");
+  return root.length > 12 ? `${root}/` : "";
+}
+
+function renderFileList(context, files, label) {
+  const groups = new Map();
+  for (const entry of files) {
+    const [dir] = splitPath(entry.path);
+    if (!groups.has(dir)) groups.set(dir, []);
+    groups.get(dir).push(entry);
+  }
+  const root = commonRoot([...groups.keys()]);
+
+  const list = el("div", { class: "file-list", role: "listbox", "aria-label": label });
+  for (const [dir, entries] of groups) {
+    if (dir) {
+      list.append(el("div", { class: "file-folder", title: dir,
+        text: dir.slice(root.length).replace(/\/$/, "") || "." }));
+    }
+    for (const entry of entries) {
+      list.append(fileListRow(context,
+        dir ? { ...entry, display: splitPath(entry.path)[1], nested: true } : entry));
+    }
+  }
+  return root
+    ? el("div", {}, [el("div", { class: "file-root", title: root, text: root }), list])
+    : list;
+}
+
 function fileRowMenu(context, entry) {
   return [
     { header: entry.path },
@@ -217,9 +254,9 @@ function fileRowMenu(context, entry) {
 }
 
 function fileListRow(context, entry, extras = []) {
-  const [dir, name] = splitPath(entry.path);
+  const [dir, name] = splitPath(entry.display || entry.path);
   const row = el("div", {
-    class: "file-row",
+    class: `file-row${entry.nested ? " nested" : ""}`,
     role: "option",
     tabindex: "0",
     "data-path": entry.path,

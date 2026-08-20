@@ -215,8 +215,7 @@ async function renderChangeDetail(id) {
   }
 
   const context = changeContext(change);
-  const list = el("div", { class: "file-list", role: "listbox", "aria-label": "Files in this change" });
-  for (const entry of context.files) list.append(fileListRow(context, entry));
+  const list = renderFileList(context, context.files, "Files in this change");
   detail.append(el("section", { class: "detail-section files-section" }, [
     el("h3", {}, [
       `Files (${context.files.length})`,
@@ -311,8 +310,7 @@ async function renderCommitDetail(sha) {
     ]));
   }
 
-  const list = el("div", { class: "file-list", role: "listbox", "aria-label": "Files in this commit" });
-  for (const entry of commit.files) list.append(fileListRow(context, entry));
+  const list = renderFileList(context, commit.files, "Files in this commit");
   detail.append(el("section", { class: "detail-section files-section" }, [
     el("h3", {}, [
       `Files (${commit.files.length})`,

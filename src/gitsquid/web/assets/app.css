@@ -751,3 +751,17 @@ body.resizing { cursor: col-resize; user-select: none; }
 .blame-line .tx { flex: 1 1 auto; padding: 0 12px; white-space: pre; }
 .blame-line:hover { background: var(--bg-hover); }
 .viewer-body.wrap .blame-line .tx { white-space: pre-wrap; word-break: break-word; }
+
+.file-folder {
+  padding: 7px var(--s4) 3px;
+  font: 11px var(--mono); color: var(--text-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  direction: rtl; text-align: left;
+}
+.file-row.nested { padding-left: 26px; }
+.file-root {
+  padding: 6px var(--s4) 2px;
+  font: 11px var(--mono); color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  direction: rtl; text-align: left;
+}

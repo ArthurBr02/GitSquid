@@ -94,3 +94,23 @@ class TestInlineMarks:
 
     def test_a_line_rewritten_end_to_end_is_not_marked(self):
         assert self.cut("alpha beta gamma", "delta epsilon zeta") is None
+
+
+class TestSharedFolder:
+    def root(self, *directories: str) -> str:
+        return run({"op": "root", "directories": list(directories)})["root"]
+
+    def test_a_deep_shared_folder_is_named_once(self):
+        assert self.root(
+            "src/main/java/com/example/app/fil/",
+            "src/main/java/com/example/app/mail/",
+        ) == "src/main/java/com/example/app/"
+
+    def test_folders_that_part_early_share_nothing_worth_saying(self):
+        assert self.root("src/main/java/", "tests/") == ""
+
+    def test_one_folder_alone_needs_no_heading(self):
+        assert self.root("src/main/java/com/example/") == ""
+
+    def test_a_shallow_shared_folder_is_not_worth_a_line(self):
+        assert self.root("src/one/", "src/two/") == ""
