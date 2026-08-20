@@ -267,3 +267,27 @@ class TestFilesGitNeverPromisedWereUtf8:
 
     def test_blame_survives_it_too(self, latin):
         assert gitlog.blame(latin, "latin.txt")["lines"]
+
+
+class TestAccentedPaths:
+    @pytest.fixture
+    def accented(self, repo):
+        (repo / "café été.txt").write_text("contenu\n", encoding="utf-8")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "un nom accentue")
+        return repo
+
+    def test_a_name_is_reported_as_it_is_written(self, accented):
+        head = git(accented, "rev-parse", "HEAD").stdout.strip()
+        assert [file["path"] for file in gitlog.commit_detail(accented, head)["files"]] == ["café été.txt"]
+
+    def test_its_patch_can_be_fetched_by_that_name(self, accented):
+        head = git(accented, "rev-parse", "HEAD").stdout.strip()
+        assert "contenu" in gitlog.commit_patch(accented, head, "café été.txt")["diff"]
+
+    def test_the_working_tree_reads_it_too(self, accented):
+        from gitsquid import worktree
+
+        (accented / "café été.txt").write_text("modifié\n", encoding="utf-8")
+        assert "modifié" in worktree.file_diff(accented, "café été.txt", staged=False)
+        assert [entry.path for entry in worktree.status(accented)] == ["café été.txt"]

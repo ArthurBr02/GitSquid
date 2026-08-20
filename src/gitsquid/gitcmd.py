@@ -19,7 +19,8 @@ def run(
 ) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(
-            ["git", "-C", str(repo), *args],
+            # quotePath=false: a file named café is a file named café, not "caf\303\251".
+            ["git", "-c", "core.quotePath=false", "-C", str(repo), *args],
             input=stdin,
             capture_output=True,
             text=True,
