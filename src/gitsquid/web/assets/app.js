@@ -21,6 +21,7 @@ const state = {
   commitMessage: "",
   counts: {},
   view: null,
+  painting: null,
   limit: 80,
   search: null,
   amend: false,
@@ -312,6 +313,13 @@ function renderRows() {
     );
   }
 
+  state.painting = { laid, gap, width };
+  paintGraph();
+}
+
+function paintGraph() {
+  if (!state.painting) return;
+  const { laid, gap, width } = state.painting;
   Graph.paint($("graph-canvas"), laid, {
     rowHeight: ROW_H,
     gap,
@@ -319,6 +327,24 @@ function renderRows() {
     pendingColor: (row) => (row.kind === "wip" ? "#f0b429" : STATUS_COLORS[row.status] || "#58a6ff"),
     isSelected: (row) => row.key === state.selected,
   });
+}
+
+/* Moving through a thousand rows must not rebuild a thousand rows: the list only changes
+   which one is marked, and the lanes are repainted once the movement stops. */
+let repaint = 0;
+
+function markSelection(previous) {
+  const list = $("rows");
+  const leaving = previous ? $(`row-${previous}`) : null;
+  if (leaving) leaving.setAttribute("aria-selected", "false");
+  const node = state.selected ? $(`row-${state.selected}`) : null;
+  if (node) {
+    node.setAttribute("aria-selected", "true");
+    node.scrollIntoView({ block: "nearest" });
+  }
+  list.setAttribute("aria-activedescendant", state.selected ? `row-${state.selected}` : "");
+  clearTimeout(repaint);
+  repaint = setTimeout(paintGraph, 90);
 }
 
 /* ---------- context menus: one builder per kind of row ---------- */
@@ -1486,9 +1512,10 @@ async function renderCommitDetail(sha) {
 /* ---------- selection ---------- */
 
 function select(key) {
+  const previous = state.selected;
   state.selected = key;
   if (state.view) closeViewer();
-  renderRows();
+  markSelection(previous);
   const worktreeRow = $("wip-row");
   if (worktreeRow) worktreeRow.setAttribute("aria-current", key === "wip" ? "true" : "false");
   const node = $(`row-${key}`);
