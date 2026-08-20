@@ -84,7 +84,7 @@ REMOTE_URL = re.compile(r"(?:https?|git|ssh)://\S+|[A-Za-z0-9._-]+@[A-Za-z0-9._-
 
 
 def add_remote(repo: Path, name: str, url: str) -> str:
-    """Give the repository somewhere to push to. Nothing is fetched yet."""
+    """Give the repository somewhere to push to. Nothing is fetched until you ask."""
     name, url = (name or "").strip(), (url or "").strip()
     if not REMOTE_NAME.fullmatch(name):
         raise GitError("A remote name is letters, digits, dot, dash or underscore.")

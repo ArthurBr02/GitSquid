@@ -1,9 +1,5 @@
 "use strict";
 
-/* The right column: the working tree, a recorded change, a commit, a file history. */
-
-/* ---------- working tree detail ---------- */
-
 function renderWorktreeDetail() {
   const detail = clear($("detail"));
   const files = state.worktree.files;
@@ -170,8 +166,6 @@ function openCommit(sha) {
   quiet(renderCommitDetail(sha));
 }
 
-/* ---------- change and commit detail ---------- */
-
 function actionButton(label, kind, handler, disabled) {
   return el("button", { type: "button", class: `btn ${kind}`, disabled, onclick: handler, text: label });
 }
@@ -186,7 +180,7 @@ async function changeAction(id, action) {
   }));
 }
 
-/* Two selections in flight would race, and the slower request would win the panel. */
+// Two selections in flight would race, and the slower request would win the panel.
 function newestRender() {
   state.render += 1;
   return state.render;

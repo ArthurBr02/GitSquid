@@ -24,13 +24,11 @@ def run(
             input=stdin,
             capture_output=True,
             text=True,
-            # Repositories hold files git never promised were UTF-8. A latin-1 line must not
-            # crash a diff; it comes back with a replacement character instead.
+            # A latin-1 line in a diff must not crash the request that reads it.
             errors="replace",
             timeout=timeout,
             check=False,
-            # Inherit the environment (git needs HOME for the user's identity) but never
-            # let git block on an interactive credential prompt.
+            # git needs HOME for the user's identity, and must never block on a credential prompt.
             env=os.environ | {"GIT_TERMINAL_PROMPT": "0"},
         )
     except FileNotFoundError as exc:
@@ -107,7 +105,6 @@ def require_commit_ref(repo: Path, value: str) -> str:
 
 
 def git_version() -> str:
-    """The git behind everything here, for the days when the version is the answer."""
     try:
         result = subprocess.run(
             ["git", "--version"], capture_output=True, text=True, timeout=10, check=False,

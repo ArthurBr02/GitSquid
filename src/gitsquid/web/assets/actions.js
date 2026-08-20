@@ -1,8 +1,5 @@
 "use strict";
 
-/* Everything that asks the server to change something, and the questions asked before
-   it does. */
-
 async function worktreeAction(action, paths, extra = {}) {
   // Staging one file should not close the file you were reading.
   const open = state.view && state.view.context.kind === "worktree" ? { ...state.view } : null;
@@ -124,8 +121,6 @@ async function switchBranch(name) {
     await refresh(false);
   }));
 }
-
-/* ---------- the rare actions, named once and reached from the ⋯ menu ---------- */
 
 function openDialog(modalId, focusId, errorId) {
   if (errorId) $(errorId).hidden = true;

@@ -204,8 +204,7 @@ def commit_detail(repo: Path, sha: str) -> dict:
     """Everything the panel shows except the patches, which are fetched one file at a time."""
     sha = _commit_of(repo, sha)
     header = run(repo, ["show", "-s", f"--format={SEP.join(['%H', '%P', '%an', '%ae', '%aI', '%s', '%D'])}", sha])
-    # Never str.strip() a record: Python counts the separator itself as whitespace, so a
-    # commit that carries no ref would lose its last field.
+    # Python counts \x1f as whitespace, so str.strip() would eat the last, often empty, field.
     fields = header.stdout.rstrip("\n").split(SEP)
     if header.returncode != 0 or len(fields) < 7:
         raise ValueError("No such commit.")
@@ -320,7 +319,7 @@ MAX_BLAME_LINES = 8000
 
 
 def blame(repo: Path, path: str, *, rev: str = "") -> dict:
-    """Who last touched each line. `rev` empty means the working tree, warts and all."""
+    """Who last touched each line; an empty `rev` means the working tree as it stands."""
     if not is_safe_relative_path(path):
         raise ValueError("Refusing a path outside the repository.")
     if rev:

@@ -1,10 +1,5 @@
 "use strict";
 
-/* Small things the whole page uses: elements, text, the API, and how it says what it
-   is doing. Nothing here knows what a commit is. */
-
-/* ---------- DOM helpers (no innerHTML: every value is set as text) ---------- */
-
 function el(tag, props = {}, children = []) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(props)) {
@@ -24,8 +19,7 @@ function el(tag, props = {}, children = []) {
 
 const $ = (id) => document.getElementById(id);
 
-/* A child that is null, undefined or false is a branch not taken — Node.append() would
-   write it out as the text "null". */
+// Node.append() writes a null child out as the text "null"; a skipped branch must vanish.
 const renderable = (child) => child !== null && child !== undefined && child !== false;
 
 const fill = (node, ...children) => {
@@ -59,7 +53,6 @@ function copy(text, what) {
   );
 }
 
-/* One dialog for every "name this" question: branch, tag, rename, stash message. */
 function ask({ title, hint = "", label, placeholder = "", value = "", submit = "OK", optional = false, extra = null }) {
   const modal = $("ask-modal");
   const field = $("ask-value");
@@ -107,8 +100,6 @@ function ask({ title, hint = "", label, placeholder = "", value = "", submit = "
   });
 }
 
-/* ---------- api ---------- */
-
 async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
@@ -121,8 +112,6 @@ async function api(path, options = {}) {
 }
 
 const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body || {}) });
-
-/* ---------- feedback ---------- */
 
 function status(message, busy = false) {
   const target = clear($("status-text"));

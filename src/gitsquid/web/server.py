@@ -24,8 +24,7 @@ from ..safety import clean_text_input
 from ..workflow import ChangeService, WorkflowError
 
 ASSETS = Path(__file__).parent / "assets"
-# Everything that moves HEAD, rewrites history, or touches a remote lands in the audit trail;
-# staging noise does not.
+# What moves HEAD, rewrites history or touches a remote is recorded; staging noise is not.
 AUDITED_ACTIONS = frozenset({
     "merge", "rebase", "cherry-pick", "revert-commit", "reset", "checkout-commit", "branch-from",
     "branch", "delete-branch", "rename-branch", "checkout-remote", "delete-remote-branch",
@@ -72,8 +71,6 @@ class UIServer:
     def service(self):
         conn = open_db(self.settings.db_path)
         return conn, ChangeService(conn, self.settings)
-
-    # --- read endpoints -------------------------------------------------
 
     def repos(self) -> dict:
         return {
@@ -298,8 +295,6 @@ class UIServer:
                                        ignore_whitespace=ignore_whitespace, context=context)
         except ValueError as exc:
             raise ApiError(str(exc)) from exc
-
-    # --- write endpoints ------------------------------------------------
 
     def reindex(self) -> dict:
         with self._lock:

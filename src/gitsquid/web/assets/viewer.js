@@ -1,11 +1,5 @@
 "use strict";
 
-/* The middle pane when it shows a file: which files a context holds, how to fetch one,
-   and how a diff or a blame is drawn. */
-
-/* ---------- the middle pane: the graph, or one file of it ---------- */
-
-/* A context knows which files it holds and how to fetch the patch of one of them. */
 function commitContext(commit) {
   return {
     kind: "commit",
@@ -70,7 +64,6 @@ function fileStatusOf(file) {
 const readingFlags = () =>
   `${state.diffView.space ? "&ws=1" : ""}&ctx=${state.diffView.context}`;
 
-/* How the diff is read, not what it says: kept between sessions. */
 function diffViewMenu() {
   const toggle = (key, refetch) => () => {
     state.diffView[key] = !state.diffView[key];
@@ -106,13 +99,11 @@ function diffViewMenu() {
 
 const UNBORN = "0".repeat(40);
 
-/* git cannot attribute a file it has never seen. */
 function isUntracked(context, path) {
   const entry = (context.files || []).find((file) => file.path === path);
   return Boolean(entry && entry.untracked);
 }
 
-/* Who last touched each line — the other question you ask of a file. */
 async function openBlame(context, path) {
   state.view = { context, path, mode: "blame", loading: true };
   renderViewer();
@@ -152,7 +143,7 @@ function renderBlame(payload) {
   return box;
 }
 
-/* From a file's history, what you want is that file at that commit — not the commit. */
+// From a file's history you want that file at that commit, not the commit.
 async function openFileAtCommit(sha, path) {
   try {
     const commit = await api(`/api/commits/${sha}`);
@@ -183,7 +174,6 @@ function closeViewer() {
   markOpenFile();
 }
 
-/* Walking a commit's files with the arrow keys is the whole point of the file list. */
 function viewerStep(delta) {
   if (!state.view) return;
   const paths = state.view.context.files.map((file) => file.path);
@@ -199,7 +189,7 @@ function markOpenFile() {
   }
 }
 
-/* An untracked file has no diff to count: every line of it is new. */
+// An untracked file has no diff, so no counts.
 function lineCounts(entry, staged) {
   const pair = (entry.counts || {})[staged ? "staged" : "unstaged"];
   if (!pair) return {};
@@ -215,9 +205,6 @@ function fileStats(entry) {
   ];
 }
 
-/* The same file row in a commit, in a change, and in the working tree. */
-/* Twenty files under src/main/java/com/example/thing/ are twenty names, not twenty paths:
-   the folder is said once, and the rows carry what tells them apart. */
 function commonRoot(directories) {
   const parts = directories.filter(Boolean).map((dir) => dir.replace(/\/$/, "").split("/"));
   if (parts.length < 2) return "";
@@ -380,8 +367,6 @@ function renderViewer() {
   }
 }
 
-/* ---------- diff rendering with line numbers ---------- */
-
 function parseDiff(text) {
   if (!text || !text.trim()) return [];
   const files = [];
@@ -424,7 +409,6 @@ function diffLine(kind, oldNumber, newNumber, content, pick = null) {
   ]);
 }
 
-/* What actually changed inside a rewritten line, when it is a small part of it. */
 function inlineParts(before, after) {
   const shortest = Math.min(before.length, after.length);
   let head = 0;
@@ -450,8 +434,7 @@ function markedLine(text, cut) {
   ];
 }
 
-/* A patch for exactly the lines picked: an unpicked addition vanishes, an unpicked removal
-   becomes context, and each hunk header is recounted around what is left. */
+// An unpicked addition vanishes, an unpicked removal becomes context, headers are recounted.
 function linePatch(file, picks) {
   const body = [];
   let drift = 0;
@@ -567,9 +550,7 @@ function hunkBar(file, hunk, actions) {
     })));
 }
 
-/* A run of removed lines followed by as many added ones is one edit, read line by line. */
-/* A run of removed lines followed by as many added ones is one edit, read line by line.
-   Each entry is [text, position], the position being the line's place in the hunk. */
+// Entries are [text, position]; the position is the line's place in its hunk.
 function renderRewrite(box, removed, added, numbers, pickFor) {
   const paired = removed.length === added.length;
   removed.forEach(([line, position], index) => {
@@ -584,7 +565,7 @@ function renderRewrite(box, removed, added, numbers, pickFor) {
 
 const MAX_DIFF_LINES = 4000;
 
-/* `actions` is set only for a working-tree file, where a hunk — or a line — can be staged. */
+// `actions` is set only for a working-tree file, the only place a hunk can be staged.
 function renderDiff(diff, actions = null, { headers = true } = {}) {
   const box = el("pre", { class: "diff" });
   const picks = pickedLines();

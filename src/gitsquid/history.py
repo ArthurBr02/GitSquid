@@ -97,7 +97,6 @@ SKIPPABLE = {"rebase", "cherry-pick", "revert"}
 
 
 def skip(repo: Path) -> str:
-    """Leave this commit out of the replay and carry on with the next one."""
     pending = gitlog.pending_operation(repo)
     if pending is None or pending["kind"] not in SKIPPABLE:
         raise GitError("Nothing to skip.")

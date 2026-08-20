@@ -1,10 +1,5 @@
 "use strict";
 
-/* What each kind of row offers on a right click — one builder per kind. The actions
-   themselves live in actions.js. */
-
-/* ---------- context menus: one builder per kind of row ---------- */
-
 const confirmed = (question, action, extra) => () => {
   if (confirm(question)) worktreeAction(action, null, extra);
 };

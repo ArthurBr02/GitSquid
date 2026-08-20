@@ -1,9 +1,6 @@
-"""The page, in a real browser. Skipped when Playwright or its browser is not installed.
-
-This is the only test that proves the scripts, the CSS and the API agree with each other:
-everything else stops at the JSON. Install it with `pip install playwright` and
-`playwright install webkit`.
-"""
+"""The page, in a real browser: the only test that proves the scripts, the CSS and the API
+agree. Needs `pip install playwright` and `python -m playwright install webkit`; skips itself
+without them."""
 
 from __future__ import annotations
 

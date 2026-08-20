@@ -1,8 +1,6 @@
 "use strict";
 
-/* A context menu: the only thing on the page that opens on a right click, and the same
-   component for every list. Items are {label, run, hint, danger, disabled}, a {header} or
-   the string "-" for a separator. */
+// Items are {label, run, hint, danger, disabled}, a {header}, or "-" for a separator.
 const Menu = (() => {
   let open = null;
 
@@ -96,7 +94,7 @@ const Menu = (() => {
     node.style.top = `${top}px`;
   }
 
-  /* `at` is a pointer event or an element: right click and the menu key land in the same place. */
+  // `at` is a pointer event or an element: the right click and the menu key land alike.
   function show(at, items) {
     close();
     const usable = items.filter(Boolean);
@@ -120,7 +118,6 @@ const Menu = (() => {
     window.addEventListener("blur", close);
   }
 
-  /* Attach to any element: right click, plus the keyboard menu key while it has focus. */
   function attach(node, items) {
     node.addEventListener("contextmenu", (event) => {
       event.preventDefault();

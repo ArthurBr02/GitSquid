@@ -241,7 +241,6 @@ class TestGitAcceptsWhatThePagePicks:
         from gitsquid import worktree
 
         diff = worktree.file_diff(poem, "poeme.txt", staged=False)
-        # the removal and the line that replaced it, together: that edit goes away
         picked = [self.key_for(diff, "-ligne 2"), self.key_for(diff, "+ligne deux modifiee")]
         worktree.apply_patch(poem, self.picked_patch(diff, picked), target="discard")
 

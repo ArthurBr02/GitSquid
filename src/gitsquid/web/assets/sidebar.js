@@ -1,16 +1,10 @@
 "use strict";
 
-/* The left column and the chrome around the graph: sections, rows, the top bar. It
-   renders repository state; it never changes any. */
-
-/* ---------- sidebar: collapsible sections of one row component ---------- */
-
 const FILTER_LABELS = {
   all: "Everything", commits: "Commits", proposed: "Proposed", applied: "Applied",
   verified: "Verified", failed: "Failed", reverted: "Reverted",
 };
 
-/* A row is a row: branches, tags, stashes and the working tree all use this one. */
 function treeRow({ id, label, meta, metaTitle, icon, sub, current, className = "", onclick, menu }) {
   const node = el("div", {
     id,
@@ -161,8 +155,6 @@ function renderSidebar() {
   renderOperation(repo);
 }
 
-/* A merge, rebase, cherry-pick or revert git stopped in the middle of: the one state where
-   the next step is neither committing nor staging. */
 function renderOperation(repo) {
   const bar = clear($("op-bar"));
   const operation = repo.operation;
@@ -202,7 +194,6 @@ function renderOperation(repo) {
   );
 }
 
-/* The top bar, the filter chip and the status bar: everything that frames the graph. */
 function renderChrome() {
   const { repo, config, index, counts, total_changes: total } = state.data.state;
   document.title = `${repo.name} — GitSquid`;
@@ -293,7 +284,6 @@ function filterMenu() {
   }));
 }
 
-/* Everything that is neither a git verb nor the change loop: rare, and out of the way. */
 function moreMenu() {
   const { samples, config } = { samples: state.data.state.samples, config: state.data.state.config };
   return [

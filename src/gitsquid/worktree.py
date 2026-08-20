@@ -360,7 +360,7 @@ def stash_pop(repo: Path, ref: str) -> str:
 
 
 def stash_apply(repo: Path, ref: str) -> str:
-    """Restore a stash but keep it in the list — the difference GitKraken users expect."""
+    """Restore a stash and keep it in the list, which is what tells apply from pop."""
     ref = _require_stash(ref)
     result = run(repo, ["stash", "apply", ref])
     if result.returncode != 0:
