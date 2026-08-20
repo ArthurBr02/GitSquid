@@ -81,6 +81,10 @@ and can end at `reverted`; illegal transitions are refused by the model layer, n
 
 ## The interface
 
+![A commit, its files, and the graph behind it](docs/commit.png)
+
+![One file of that commit, read in the middle pane](docs/diff.png)
+
 `gitsquid ui` serves a single page at `http://127.0.0.1:8756/`. No account, no login, no token —
 it is a local tool for one person. Three columns, one job each:
 

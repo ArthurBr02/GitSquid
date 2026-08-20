@@ -132,3 +132,18 @@ class TestInterruptedOperations:
         git(repo, "add", "shared.py")
         assert "Continued" in history.resume(repo)
         assert gitlog.pending_operation(repo) is None
+
+
+class TestSkipping:
+    def test_a_conflicted_cherry_pick_can_be_skipped(self, conflicting):
+        repo, side = conflicting
+        with pytest.raises(GitError):
+            history.cherry_pick(repo, side)
+
+        assert "Skipped" in history.skip(repo)
+        assert gitlog.pending_operation(repo) is None
+        assert (repo / "shared.py").read_text() == "VALEUR = 1\n"
+
+    def test_there_is_nothing_to_skip_in_a_quiet_repository(self, repo):
+        with pytest.raises(GitError, match="Nothing to skip"):
+            history.skip(repo)

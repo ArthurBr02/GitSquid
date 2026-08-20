@@ -28,7 +28,7 @@ AUDITED_ACTIONS = frozenset({
     "merge", "rebase", "cherry-pick", "revert-commit", "reset", "checkout-commit", "branch-from",
     "branch", "delete-branch", "rename-branch", "checkout-remote", "delete-remote-branch",
     "tag-create", "tag-delete", "tag-push", "push", "pull", "stash-branch", "abort", "continue",
-    "remote-add", "remote-remove",
+    "remote-add", "remote-remove", "skip",
 })
 MAX_BODY_BYTES = 2 * 1024 * 1024
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]", "::1"}
@@ -463,6 +463,7 @@ def _history_actions(repo: Path, payload: dict, sha, name) -> dict:
         "rebase": lambda: history.rebase(repo, _string(payload, "target")),
         "abort": lambda: history.abort(repo),
         "continue": lambda: history.resume(repo),
+        "skip": lambda: history.skip(repo),
     }
 
 

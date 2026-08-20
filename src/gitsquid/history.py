@@ -83,6 +83,19 @@ def abort(repo: Path) -> str:
     return f"Aborted the {pending['kind']}. The repository is back where it started."
 
 
+SKIPPABLE = {"rebase", "cherry-pick", "revert"}
+
+
+def skip(repo: Path) -> str:
+    """Leave this commit out of the replay and carry on with the next one."""
+    pending = gitlog.pending_operation(repo)
+    if pending is None or pending["kind"] not in SKIPPABLE:
+        raise GitError("Nothing to skip.")
+    result = run(repo, [*_NO_EDITOR, pending["kind"], "--skip"], timeout=180)
+    _conflict_guard(repo, result, action=pending["kind"].capitalize())
+    return f"Skipped that commit and continued the {pending['kind']}."
+
+
 def resume(repo: Path) -> str:
     pending = gitlog.pending_operation(repo)
     if pending is None or pending["kind"] not in _CONTINUE:

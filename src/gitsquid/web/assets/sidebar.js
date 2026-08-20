@@ -180,6 +180,16 @@ function renderOperation(repo) {
       type: "button", class: "btn tiny", disabled: blocked > 0,
       onclick: () => worktreeAction("continue", null), text: "Continue",
     }) : null,
+    ["rebase", "cherry-pick", "revert"].includes(operation.kind) ? el("button", {
+      type: "button", class: "btn tiny ghost",
+      title: "Leave this commit out and carry on",
+      onclick: () => {
+        if (confirm("Skip this commit? The replay carries on with the next one.")) {
+          worktreeAction("skip", null);
+        }
+      },
+      text: "Skip",
+    }) : null,
     el("button", {
       type: "button", class: "btn tiny danger",
       onclick: () => {
