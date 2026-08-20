@@ -117,46 +117,51 @@ class UIServer:
     def state(self) -> dict:
         conn, _ = self.service()
         try:
-            summary = indexer.index_summary(conn)
-            counts = {
-                str(status): conn.execute(
-                    "SELECT COUNT(*) FROM changes WHERE status=?", (str(status),)
-                ).fetchone()[0]
-                for status in ChangeStatus
-            }
             return {
-                "repo": {
-                    "name": self.settings.repo.name,
-                    "path": str(self.settings.repo),
-                    "branch": gitlog.current_branch(self.settings.repo),
-                    "head": gitlog.head(self.settings.repo),
-                    "branches": gitlog.branches(self.settings.repo),
-                    "status": gitlog.working_status(self.settings.repo),
-                    "remote_branches": gitlog.remote_branches(self.settings.repo),
-                    "tags": gitlog.tags(self.settings.repo),
-                    "remotes": worktree.remotes(self.settings.repo),
-                    "tracking": worktree.tracking(self.settings.repo),
-                    "stashes": worktree.stash_list(self.settings.repo),
-                    "operation": gitlog.pending_operation(self.settings.repo),
-                    "head_message": worktree.head_message(self.settings.repo),
+                "repo": self._repository(),
+                "config": self._configuration(),
+                "index": indexer.index_summary(conn),
+                "counts": {
+                    str(status): conn.execute(
+                        "SELECT COUNT(*) FROM changes WHERE status=?", (str(status),)
+                    ).fetchone()[0]
+                    for status in ChangeStatus
                 },
-                "config": {
-                    "model": self.settings.model,
-                    "effort": self.settings.effort,
-                    "test_command": self.settings.test_command,
-                    "context_budget": self.settings.max_context_chars,
-                    "database": str(self.settings.db_path),
-                    "model_available": self.settings.model_available,
-                    "version": __version__,
-                    "git_version": gitcmd.git_version(),
-                },
-                "index": summary,
-                "counts": counts,
                 "total_changes": ChangeRepo(conn).count(),
                 "samples": sampledata.count(conn),
             }
         finally:
             conn.close()
+
+    def _repository(self) -> dict:
+        repo = self.settings.repo
+        return {
+            "name": repo.name,
+            "path": str(repo),
+            "branch": gitlog.current_branch(repo),
+            "head": gitlog.head(repo),
+            "branches": gitlog.branches(repo),
+            "remote_branches": gitlog.remote_branches(repo),
+            "tags": gitlog.tags(repo),
+            "status": gitlog.working_status(repo),
+            "remotes": worktree.remotes(repo),
+            "tracking": worktree.tracking(repo),
+            "stashes": worktree.stash_list(repo),
+            "operation": gitlog.pending_operation(repo),
+            "head_message": worktree.head_message(repo),
+        }
+
+    def _configuration(self) -> dict:
+        return {
+            "model": self.settings.model,
+            "effort": self.settings.effort,
+            "test_command": self.settings.test_command,
+            "context_budget": self.settings.max_context_chars,
+            "database": str(self.settings.db_path),
+            "model_available": self.settings.model_available,
+            "version": __version__,
+            "git_version": gitcmd.git_version(),
+        }
 
     def graph(self, limit: int = 80) -> dict:
         limit = max(10, min(limit, 5000))
@@ -497,9 +502,73 @@ def _change_row(change) -> dict:
     }
 
 
+def _one(query: dict, key: str, default: str = "") -> str:
+    return (query.get(key) or [default])[0]
+
+
 def _int(query: dict, key: str, default: int) -> int:
-    raw = (query.get(key) or [""])[0]
+    raw = _one(query, key)
     return int(raw) if raw.isdigit() else default
+
+
+def _tail(route: str, prefix: str) -> list[str]:
+    return route.removeprefix(prefix).split("/")
+
+
+# A route is (ui, route, argument) -> payload; the argument is the query for GET, the body for
+# POST. Prefixed routes end with "/" and match anything under them.
+GET_ROUTES = {
+    "/api/state": lambda ui, route, query: ui.state(),
+    "/api/graph": lambda ui, route, query: ui.graph(_int(query, "limit", 80)),
+    "/api/worktree": lambda ui, route, query: ui.worktree(),
+    "/api/repos": lambda ui, route, query: ui.repos(),
+    "/api/search": lambda ui, route, query: ui.search(_one(query, "q")),
+    "/api/filehistory": lambda ui, route, query: ui.file_history(_one(query, "path")),
+    "/api/blame": lambda ui, route, query: ui.blame(_one(query, "path"), _one(query, "rev")),
+    "/api/filediff": lambda ui, route, query: ui.file_diff(
+        _one(query, "path"), _one(query, "staged") == "1", _one(query, "ws") == "1",
+        _int(query, "ctx", 3),
+    ),
+    "/api/changes/": lambda ui, route, query: ui.change_detail(int(_tail(route, "/api/changes/")[0])),
+    "/api/commits/": lambda ui, route, query: _commit_route(ui, _tail(route, "/api/commits/"), query),
+}
+
+POST_ROUTES = {
+    "/api/index": lambda ui, route, payload: ui.reindex(),
+    "/api/propose": lambda ui, route, payload: ui.propose(payload),
+    "/api/import": lambda ui, route, payload: ui.import_payload(payload),
+    "/api/repos/open": lambda ui, route, payload: ui.open_repo(payload),
+    "/api/repos/clone": lambda ui, route, payload: ui.clone_repo(payload),
+    "/api/repos/forget": lambda ui, route, payload: ui.forget_repo(payload),
+    "/api/samples/": lambda ui, route, payload: ui.samples(_tail(route, "/api/samples/")[0]),
+    "/api/worktree/": lambda ui, route, payload: ui.worktree_action(
+        _tail(route, "/api/worktree/")[0], payload
+    ),
+    "/api/changes/": lambda ui, route, payload: _change_action(ui, _tail(route, "/api/changes/"), payload),
+}
+
+
+def _prefixed(routes: dict, route: str):
+    for prefix, handler in routes.items():
+        if prefix.endswith("/") and route.startswith(prefix):
+            return handler
+    return None
+
+
+def _commit_route(ui, parts: list[str], query: dict) -> dict:
+    if len(parts) == 1:
+        return ui.commit_detail(parts[0])
+    if len(parts) == 2 and parts[1] == "patch":
+        return ui.commit_patch(
+            parts[0], _one(query, "path"), _one(query, "ws") == "1", _int(query, "ctx", 3)
+        )
+    raise ApiError("Expected /api/commits/<sha>[/patch].", HTTPStatus.NOT_FOUND)
+
+
+def _change_action(ui, parts: list[str], payload: dict) -> dict:
+    if len(parts) != 2:
+        raise ApiError("Expected /api/changes/<id>/<action>.", HTTPStatus.NOT_FOUND)
+    return ui.act(int(parts[0]), parts[1], payload)
 
 
 def _string(payload: dict, key: str) -> str:
@@ -563,105 +632,54 @@ class _Handler(BaseHTTPRequestHandler):
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise ApiError("Request body is not valid JSON.") from exc
 
-    def do_GET(self) -> None:  # noqa: N802
-        parsed = urlparse(self.path)
-        query = parse_qs(parsed.query)
-        if not self._host_ok():
-            self._json(HTTPStatus.FORBIDDEN, {"error": "Only loopback requests are served."})
-            return
-        route = parsed.path
-        if route.startswith("/assets/"):
-            self._asset(route.removeprefix("/assets/"))
-            return
-
+    def _dispatch(self, routes, route, argument) -> None:
+        """Answer with JSON, turning every failure into a status the interface can show."""
         try:
-            if route == "/":
-                self._asset("index.html")
-            elif route == "/api/state":
-                self._json(HTTPStatus.OK, self.ui.state())
-            elif route == "/api/graph":
-                self._json(HTTPStatus.OK, self.ui.graph(_int(query, "limit", 80)))
-            elif route == "/api/worktree":
-                self._json(HTTPStatus.OK, self.ui.worktree())
-            elif route == "/api/repos":
-                self._json(HTTPStatus.OK, self.ui.repos())
-            elif route == "/api/filediff":
-                self._json(HTTPStatus.OK, self.ui.file_diff(
-                    (query.get("path") or [""])[0], (query.get("staged") or ["0"])[0] == "1",
-                    (query.get("ws") or ["0"])[0] == "1", _int(query, "ctx", 3)))
-            elif route == "/api/blame":
-                self._json(HTTPStatus.OK, self.ui.blame(
-                    (query.get("path") or [""])[0], (query.get("rev") or [""])[0]))
-            elif route == "/api/search":
-                self._json(HTTPStatus.OK, self.ui.search((query.get("q") or [""])[0]))
-            elif route == "/api/filehistory":
-                self._json(HTTPStatus.OK, self.ui.file_history((query.get("path") or [""])[0]))
-            elif route == "/api/export":
-                body = self.ui.export()
-                self.send_response(HTTPStatus.OK)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Content-Disposition", 'attachment; filename="gitsquid-export.json"')
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-            elif route.startswith("/api/changes/"):
-                self._json(HTTPStatus.OK, self.ui.change_detail(int(route.rsplit("/", 1)[1])))
-            elif route.startswith("/api/commits/"):
-                parts = route.removeprefix("/api/commits/").split("/")
-                if len(parts) == 1:
-                    self._json(HTTPStatus.OK, self.ui.commit_detail(parts[0]))
-                elif len(parts) == 2 and parts[1] == "patch":
-                    self._json(HTTPStatus.OK, self.ui.commit_patch(
-                        parts[0], (query.get("path") or [""])[0],
-                        (query.get("ws") or ["0"])[0] == "1", _int(query, "ctx", 3)))
-                else:
-                    self._json(HTTPStatus.NOT_FOUND, {"error": "Not found."})
-            else:
+            handler = routes.get(route) or _prefixed(routes, route)
+            if handler is None:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "Not found."})
+                return
+            self._json(HTTPStatus.OK, handler(self.ui, route, argument))
         except ApiError as exc:
             self._json(exc.status, {"error": str(exc)})
         except ValueError:
             self._json(HTTPStatus.BAD_REQUEST, {"error": "Malformed identifier."})
-        except Exception as exc:  # keep the UI usable when a command fails
+        except Exception as exc:  # keep the interface usable when a command fails
             self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"{type(exc).__name__}: {exc}"})
 
-    def do_POST(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:  # noqa: N802
+        if not self._host_ok():
+            self._json(HTTPStatus.FORBIDDEN, {"error": "Only loopback requests are served."})
+            return
         parsed = urlparse(self.path)
+        route = parsed.path
+        if route == "/":
+            self._asset("index.html")
+        elif route.startswith("/assets/"):
+            self._asset(route.removeprefix("/assets/"))
+        elif route == "/api/export":
+            self._download(self.ui.export(), "gitsquid-export.json")
+        else:
+            self._dispatch(GET_ROUTES, route, parse_qs(parsed.query))
+
+    def do_POST(self) -> None:  # noqa: N802
         if not self._host_ok():
             self._json(HTTPStatus.FORBIDDEN, {"error": "Only loopback requests are served."})
             return
         try:
             payload = self._body()
-            route = parsed.path
-            if route == "/api/index":
-                self._json(HTTPStatus.OK, self.ui.reindex())
-            elif route == "/api/repos/clone":
-                self._json(HTTPStatus.OK, self.ui.clone_repo(payload))
-            elif route == "/api/repos/open":
-                self._json(HTTPStatus.OK, self.ui.open_repo(payload))
-            elif route == "/api/repos/forget":
-                self._json(HTTPStatus.OK, self.ui.forget_repo(payload))
-            elif route == "/api/propose":
-                self._json(HTTPStatus.OK, self.ui.propose(payload))
-            elif route == "/api/import":
-                self._json(HTTPStatus.OK, self.ui.import_payload(payload))
-            elif route.startswith("/api/samples/"):
-                self._json(HTTPStatus.OK, self.ui.samples(route.rsplit("/", 1)[1]))
-            elif route.startswith("/api/worktree/"):
-                self._json(HTTPStatus.OK, self.ui.worktree_action(route.rsplit("/", 1)[1], payload))
-            elif route.startswith("/api/changes/"):
-                parts = route.removeprefix("/api/changes/").split("/")
-                if len(parts) != 2:
-                    raise ApiError("Expected /api/changes/<id>/<action>.", HTTPStatus.NOT_FOUND)
-                self._json(HTTPStatus.OK, self.ui.act(int(parts[0]), parts[1], payload))
-            else:
-                self._json(HTTPStatus.NOT_FOUND, {"error": "Not found."})
         except ApiError as exc:
             self._json(exc.status, {"error": str(exc)})
-        except ValueError:
-            self._json(HTTPStatus.BAD_REQUEST, {"error": "Malformed identifier."})
-        except Exception as exc:
-            self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"{type(exc).__name__}: {exc}"})
+            return
+        self._dispatch(POST_ROUTES, urlparse(self.path).path, payload)
+
+    def _download(self, body: bytes, filename: str) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
 
 def serve(settings: Settings, *, port: int = 8756) -> UIServer:
