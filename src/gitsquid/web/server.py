@@ -9,7 +9,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from .. import diffs, gitlog, history, indexer, portability, refs, registry, sampledata, worktree
+from .. import (
+    clone, diffs, gitlog, history, indexer, portability, refs, registry, sampledata, worktree,
+)
 from ..config import ConfigError, Settings, load_settings
 from ..db import open_db
 from ..llm import AnthropicBackend, PatchFileBackend, ProposalError
@@ -90,6 +92,20 @@ class UIServer:
             open_db(settings.db_path).close()
             self.settings = settings
         return {"message": f"Opened {settings.repo.name}.", "active": str(settings.repo)}
+
+    def clone_repo(self, payload: dict) -> dict:
+        """Clone, register, and open — the three things you always want together."""
+        url = _string(payload, "url")
+        parent = _string(payload, "parent")
+        try:
+            target = clone.clone(url, Path(parent).expanduser(), name=str(payload.get("name") or ""))
+            settings = load_settings(registry.add(target))
+        except (GitError, ConfigError) as exc:
+            raise ApiError(str(exc)) from exc
+        with self._lock:
+            open_db(settings.db_path).close()
+            self.settings = settings
+        return {"message": f"Cloned into {target}.", "active": str(target)}
 
     def forget_repo(self, payload: dict) -> dict:
         raw = _string(payload, "path").strip()
@@ -393,16 +409,8 @@ class UIServer:
                 conn.close()
 
 
-def _handlers(repo: Path, payload: dict):
-    """One name per action, grouped by the module that owns it."""
-    paths = payload.get("paths") or []
-
-    def branch() -> str:
-        return _string(payload, "branch")
-
-    def sha() -> str:
-        return _string(payload, "sha")
-
+def _worktree_actions(repo: Path, payload: dict, paths: list[str]) -> dict:
+    """The working tree and the index."""
     return {
         "stage": lambda: worktree.stage(repo, paths),
         "unstage": lambda: worktree.unstage(repo, paths),
@@ -412,32 +420,43 @@ def _handlers(repo: Path, payload: dict):
         "stage-hunk": lambda: worktree.apply_patch(repo, _string(payload, "patch"), target="stage"),
         "unstage-hunk": lambda: worktree.apply_patch(repo, _string(payload, "patch"), target="unstage"),
         "discard-hunk": lambda: worktree.apply_patch(repo, _string(payload, "patch"), target="discard"),
-        "checkout": lambda: worktree.checkout(repo, branch()),
-        "branch": lambda: worktree.create_branch(repo, _string(payload, "name")),
-        "merge": lambda: worktree.merge(repo, branch(), squash=bool(payload.get("squash"))),
-        "delete-branch": lambda: worktree.delete_branch(repo, branch(), force=bool(payload.get("force"))),
-        "fetch": lambda: worktree.fetch(repo),
-        "pull": lambda: worktree.pull(repo),
-        "push": lambda: worktree.push(repo, force=bool(payload.get("force"))),
         "stash": lambda: worktree.stash_save(repo, str(payload.get("message") or "")),
         "stash-pop": lambda: worktree.stash_pop(repo, _string(payload, "ref")),
         "stash-apply": lambda: worktree.stash_apply(repo, _string(payload, "ref")),
         "stash-drop": lambda: worktree.stash_drop(repo, _string(payload, "ref")),
         "stash-branch": lambda: worktree.stash_branch(repo, _string(payload, "ref"), _string(payload, "name")),
-        "rename-branch": lambda: refs.rename_branch(repo, branch(), _string(payload, "name")),
-        "remote-add": lambda: refs.add_remote(repo, _string(payload, "name"), _string(payload, "url")),
-        "remote-remove": lambda: refs.remove_remote(repo, _string(payload, "name")),
+    }
+
+
+def _branch_actions(repo: Path, payload: dict, branch, name) -> dict:
+    """Branches, tags, and the remotes they travel to."""
+    return {
+        "checkout": lambda: worktree.checkout(repo, branch()),
+        "branch": lambda: worktree.create_branch(repo, name()),
+        "merge": lambda: worktree.merge(repo, branch(), squash=bool(payload.get("squash"))),
+        "delete-branch": lambda: worktree.delete_branch(repo, branch(), force=bool(payload.get("force"))),
+        "rename-branch": lambda: refs.rename_branch(repo, branch(), name()),
         "push-branch": lambda: refs.push_branch(repo, branch()),
         "checkout-remote": lambda: refs.track_remote_branch(repo, branch()),
         "delete-remote-branch": lambda: refs.delete_remote_branch(repo, branch()),
         "tag-create": lambda: refs.create_tag(
-            repo, _string(payload, "name"), sha=str(payload.get("sha") or ""),
-            message=str(payload.get("message") or ""),
+            repo, name(), sha=str(payload.get("sha") or ""), message=str(payload.get("message") or "")
         ),
-        "tag-delete": lambda: refs.delete_tag(repo, _string(payload, "name")),
-        "tag-push": lambda: refs.push_tag(repo, _string(payload, "name")),
+        "tag-delete": lambda: refs.delete_tag(repo, name()),
+        "tag-push": lambda: refs.push_tag(repo, name()),
+        "remote-add": lambda: refs.add_remote(repo, name(), _string(payload, "url")),
+        "remote-remove": lambda: refs.remove_remote(repo, name()),
+        "fetch": lambda: worktree.fetch(repo),
+        "pull": lambda: worktree.pull(repo),
+        "push": lambda: worktree.push(repo, force=bool(payload.get("force"))),
+    }
+
+
+def _history_actions(repo: Path, payload: dict, sha, name) -> dict:
+    """Everything that moves HEAD or replays a commit."""
+    return {
         "checkout-commit": lambda: history.checkout_commit(repo, sha()),
-        "branch-from": lambda: history.branch_from(repo, sha(), _string(payload, "name")),
+        "branch-from": lambda: history.branch_from(repo, sha(), name()),
         "cherry-pick": lambda: history.cherry_pick(repo, sha()),
         "revert-commit": lambda: history.revert_commit(repo, sha()),
         "reset": lambda: history.reset(repo, sha(), mode=str(payload.get("mode") or "mixed")),
@@ -445,6 +464,21 @@ def _handlers(repo: Path, payload: dict):
         "abort": lambda: history.abort(repo),
         "continue": lambda: history.resume(repo),
     }
+
+
+def _handlers(repo: Path, payload: dict) -> dict:
+    """One name per action, grouped by the module that owns it."""
+    paths = payload.get("paths") or []
+    def field(key: str):
+        """Read a payload field only when the action that needs it actually runs."""
+        return lambda: _string(payload, key)
+
+    branch, name, sha = field("branch"), field("name"), field("sha")
+    return (
+        _worktree_actions(repo, payload, paths)
+        | _branch_actions(repo, payload, branch, name)
+        | _history_actions(repo, payload, sha, name)
+    )
 
 
 def _change_row(change) -> dict:
@@ -599,6 +633,8 @@ class _Handler(BaseHTTPRequestHandler):
             route = parsed.path
             if route == "/api/index":
                 self._json(HTTPStatus.OK, self.ui.reindex())
+            elif route == "/api/repos/clone":
+                self._json(HTTPStatus.OK, self.ui.clone_repo(payload))
             elif route == "/api/repos/open":
                 self._json(HTTPStatus.OK, self.ui.open_repo(payload))
             elif route == "/api/repos/forget":

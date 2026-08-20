@@ -78,6 +78,26 @@ async function addRemote() {
   if (answer) worktreeAction("remote-add", null, { name: answer.value, url: answer.extra });
 }
 
+async function cloneRepository() {
+  const answer = await ask({
+    title: "Clone a repository",
+    hint: "It lands in the folder you name, and opens here when it is done.",
+    label: "URL",
+    placeholder: "git@example.com:group/project.git",
+    submit: "Clone",
+    extra: { label: "Into which folder", placeholder: "/Users/you/Projects" },
+  });
+  if (!answer) return;
+  if (!answer.extra) return toast("bad", "Say where to put it — an absolute folder path.");
+  await quiet(withBusy(`Cloning ${answer.value}…`, async () => {
+    const result = await post("/api/repos/clone", { url: answer.value, parent: answer.extra });
+    toast("ok", result.message);
+    state.selected = null;
+    state.view = null;
+    await refresh(false);
+  }));
+}
+
 async function createTag() {
   const answer = await ask({
     title: "Tag the current commit",

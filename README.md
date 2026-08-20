@@ -101,8 +101,8 @@ it is a local tool for one person. Three columns, one job each:
   grouped into conflicted, staged and unstaged.
 
 The top bar holds the repository chip — every registered repository, each with its own database,
-index, `.env` and history — then Fetch, Pull, Push with their ahead/behind counts, and **New
-change**. Everything rare lives behind the **⋯** menu: re-index, export, import, sample records,
+index, `.env` and history, plus **Clone a repository…** for one you do not have yet — then Fetch,
+Pull, Push with their ahead/behind counts, and **New change**. Everything rare lives behind the **⋯** menu: re-index, export, import, sample records,
 the repository list, the shortcuts. A right click on Push offers a force push with lease. The page
 refreshes itself when you come back to the window, so what your editor did shows up without asking.
 
@@ -190,7 +190,9 @@ bundle, and running the wrong one tells you so immediately instead of failing in
 | `gitcmd.py` | The one place git is invoked: process, timeouts, credential-prompt refusal, and the validation of every ref, path and commit id that reaches a command line. |
 | `gitlog.py` | Reads: commits, parents, branches, remote branches, tags, status, file history, and the operation git stopped in the middle of. |
 | `worktree.py` | The working tree and the index: stage, unstage, discard, ignore, per-hunk apply, commit, amend, branch, merge, stash, and the remote sync. |
-| `refs.py` | Tags, remote branches, and branch renaming. |
+| `refs.py` | Tags, remote branches, remotes, and branch renaming. |
+| `clone.py` | Getting a repository in the first place. |
+| `phrasing.py` | How the product counts things, so nothing says "1 file(s)". |
 | `history.py` | Check out a commit, branch from it, cherry-pick, revert, reset, rebase — and abort or continue what conflicts. |
 | `registry.py` | The list of known repositories, shared by every session. |
 | `web/` | Loopback HTTP server and JSON API. The page is seven small scripts, one job each: `base` (elements, text, the API), `menu` (the context-menu component), `menus` (what each row offers), `sidebar`, `viewer` (the middle pane when it shows a file), `panels` (the right column), `actions`, and `app` (state, rows, selection, boot). `graph.js` lays out and paints the lanes. |
@@ -324,10 +326,10 @@ Stated plainly, because some of them are deliberate:
 - One database per repository, and no cross-repository view: you switch between repositories,
   you do not see them side by side. No pull requests, no code review, no issue tracking.
 - The interface stages by file or by hunk, commits, amends, branches, tags, merges, squash-merges,
-  rebases, cherry-picks, reverts, resets, stashes, fetches, pulls, and pushes. It does **not**
-  clone, resolve conflicts in an editor, rebase interactively, or manage submodules, worktrees
-  and LFS. A conflict is named, counted and left to you: resolve it in your editor, then Continue
-  or Abort from the bar.
+  rebases, cherry-picks, reverts, resets, stashes, fetches, pulls, pushes, and clones. It does
+  **not** resolve conflicts in an editor, rebase interactively, or manage submodules, worktrees
+  and LFS. A conflict is named and counted, and can be settled by keeping one side whole;
+  anything finer is your editor's job, then Continue or Abort from the bar.
 - Staging is per file or per hunk, never per line.
 - Pull is fast-forward only, on purpose: no implicit merge commit behind your back.
 - Credentials are git's business. GitSquid never asks for or stores one, and a remote operation that

@@ -414,6 +414,7 @@ function repoMenu() {
     })),
     "-",
     { label: "Open another…", hint: "O", run: openReposDialog },
+    { label: "Clone a repository…", run: cloneRepository },
   ];
 }
 
