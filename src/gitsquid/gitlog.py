@@ -311,7 +311,9 @@ def blame(repo: Path, path: str, *, rev: str = "") -> dict:
         args.append(rev)
     result = run(repo, [*args, "--", path], timeout=120)
     if result.returncode != 0:
-        raise ValueError("git cannot blame this file — it may be binary, or absent at that commit.")
+        raise ValueError(
+            "git cannot attribute this file — it is untracked, binary, or absent at that commit."
+        )
 
     authors: dict[str, dict[str, str]] = {}
     lines: list[dict] = []

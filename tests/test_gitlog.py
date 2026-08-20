@@ -225,5 +225,5 @@ class TestBlame:
             gitlog.blame(repo, "../../etc/passwd")
 
     def test_an_unknown_file_is_reported(self, repo):
-        with pytest.raises(ValueError, match="cannot blame"):
+        with pytest.raises(ValueError, match="cannot attribute"):
             gitlog.blame(repo, "jamais-vu.py")
