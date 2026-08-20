@@ -1,38 +1,41 @@
-/* A quiet dark workspace: three surfaces, one accent, colour reserved for status.
-   Every list — branches, tags, stashes, files — is the same row component. */
 :root {
-  --bg: #14161c;
-  --bg-raised: #191c23;
-  --bg-panel: #1e222b;
-  --bg-hover: #242935;
-  --bg-active: #2b3242;
-  --line: #272c37;
-  --line-soft: #21252e;
-  --text: #e6eaf2;
-  --text-dim: #98a1b3;
-  --text-faint: #69718a;
-  --accent: #4f9dff;
-  --accent-strong: #79b6ff;
-  --accent-ink: #06121f;
-  --teal: #3fc7bb;
-  --green: #57cf94;
-  --amber: #e8ae33;
-  --red: #f4696c;
-  --purple: #bd8ee6;
+  color-scheme: light dark;
+  --bg: light-dark(#f4f6f9, #14161c);
+  --bg-raised: light-dark(#ffffff, #191c23);
+  --bg-panel: light-dark(#ffffff, #1e222b);
+  --bg-hover: light-dark(#e9edf3, #242935);
+  --bg-active: light-dark(#dde6f5, #2b3242);
+  --line: light-dark(#d8dde5, #272c37);
+  --line-soft: light-dark(#e7eaf0, #21252e);
+  --text: light-dark(#1b2029, #e6eaf2);
+  --text-dim: light-dark(#545c6e, #98a1b3);
+  --text-faint: light-dark(#7d8494, #69718a);
+  --accent: light-dark(#2872d8, #4f9dff);
+  --accent-strong: light-dark(#1b5fc0, #79b6ff);
+  --accent-ink: light-dark(#ffffff, #06121f);
+  --teal: light-dark(#0d8f88, #3fc7bb);
+  --green: light-dark(#1c8f52, #57cf94);
+  --amber: light-dark(#9c6a06, #e8ae33);
+  --red: light-dark(#cc383c, #f4696c);
+  --purple: light-dark(#7248bd, #bd8ee6);
+  --add-bg: light-dark(rgba(28, 143, 82, .1), rgba(87, 207, 148, .1));
+  --add-ink: light-dark(#10562f, #96e0bb);
+  --add-mark: light-dark(rgba(28, 143, 82, .26), rgba(87, 207, 148, .28));
+  --del-bg: light-dark(rgba(204, 56, 60, .09), rgba(244, 105, 108, .1));
+  --del-ink: light-dark(#8d1f22, #ffa8a8);
+  --del-mark: light-dark(rgba(204, 56, 60, .22), rgba(244, 105, 108, .28));
+  --hunk-bg: light-dark(rgba(40, 114, 216, .1), rgba(79, 157, 255, .1));
+  --hunk-ink: var(--accent-strong);
+  --shadow: light-dark(rgba(20, 28, 45, .18), rgba(0, 0, 0, .5));
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px;
   --radius: 7px;
-  --add-bg: rgba(87, 207, 148, .1);
-  --add-ink: #96e0bb;
-  --add-mark: rgba(87, 207, 148, .28);
-  --del-bg: rgba(244, 105, 108, .1);
-  --del-ink: #ffa8a8;
-  --del-mark: rgba(244, 105, 108, .28);
-  --hunk-bg: rgba(79, 157, 255, .1);
-  --hunk-ink: var(--accent-strong);
-  --shadow: rgba(0, 0, 0, .5);
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
 }
+
+/* Appearance follows the system until the ⋯ menu says otherwise. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
 
 * { box-sizing: border-box; }
 /* Declared once, and never fought by a component's own display rule. */
@@ -146,72 +149,6 @@ body {
   border-radius: 999px;
   background: var(--accent); color: var(--accent-ink);
   font: 600 10px var(--mono);
-}
-
-
-/* ---------- light ---------- */
-/* The same interface in daylight: only the tokens change, never a rule. */
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) { color-scheme: light; }
-  :root:not([data-theme="dark"]) {
-    --bg: #f4f6f9;
-    --bg-raised: #ffffff;
-    --bg-panel: #ffffff;
-    --bg-hover: #e9edf3;
-    --bg-active: #dde6f5;
-    --line: #d8dde5;
-    --line-soft: #e7eaf0;
-    --text: #1b2029;
-    --text-dim: #545c6e;
-    --text-faint: #7d8494;
-    --accent: #2872d8;
-    --accent-strong: #1b5fc0;
-    --accent-ink: #ffffff;
-    --teal: #0d8f88;
-    --green: #1c8f52;
-    --amber: #9c6a06;
-    --red: #cc383c;
-    --purple: #7248bd;
-    --add-bg: rgba(28, 143, 82, .1);
-    --add-ink: #10562f;
-    --add-mark: rgba(28, 143, 82, .26);
-    --del-bg: rgba(204, 56, 60, .09);
-    --del-ink: #8d1f22;
-    --del-mark: rgba(204, 56, 60, .22);
-    --hunk-bg: rgba(40, 114, 216, .1);
-    --hunk-ink: #1b5fc0;
-    --shadow: rgba(20, 28, 45, .18);
-  }
-}
-:root[data-theme="light"] {
-  color-scheme: light;
-  --bg: #f4f6f9;
-  --bg-raised: #ffffff;
-  --bg-panel: #ffffff;
-  --bg-hover: #e9edf3;
-  --bg-active: #dde6f5;
-  --line: #d8dde5;
-  --line-soft: #e7eaf0;
-  --text: #1b2029;
-  --text-dim: #545c6e;
-  --text-faint: #7d8494;
-  --accent: #2872d8;
-  --accent-strong: #1b5fc0;
-  --accent-ink: #ffffff;
-  --teal: #0d8f88;
-  --green: #1c8f52;
-  --amber: #9c6a06;
-  --red: #cc383c;
-  --purple: #7248bd;
-  --add-bg: rgba(28, 143, 82, .1);
-  --add-ink: #10562f;
-  --add-mark: rgba(28, 143, 82, .26);
-  --del-bg: rgba(204, 56, 60, .09);
-  --del-ink: #8d1f22;
-  --del-mark: rgba(204, 56, 60, .22);
-  --hunk-bg: rgba(40, 114, 216, .1);
-  --hunk-ink: #1b5fc0;
-  --shadow: rgba(20, 28, 45, .18);
 }
 
 kbd {
@@ -459,7 +396,6 @@ body.resizing { cursor: col-resize; user-select: none; }
 .file-row .warn-flag { color: var(--amber); font-size: 11px; }
 .file-row .stage-btn { opacity: 0; }
 .file-row:hover .stage-btn, .file-row:focus-within .stage-btn { opacity: 1; }
-
 
 /* ---------- diffs ---------- */
 .diff {

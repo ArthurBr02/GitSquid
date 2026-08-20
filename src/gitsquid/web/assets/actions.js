@@ -155,3 +155,27 @@ function samplesAction(action) {
     await refresh(false);
   }));
 }
+
+async function applyPicked(target) {
+  const view = state.view;
+  const file = parseDiff(view.diff)[0];
+  const patch = linePatch(file, view.picks);
+  if (!patch) return;
+  const said = {
+    stage: `Staged ${plural(view.picks.size, "line")}.`,
+    unstage: `Unstaged ${plural(view.picks.size, "line")}.`,
+    discard: `Discarded ${plural(view.picks.size, "line")}.`,
+  }[target];
+  state.view = { ...view, picks: new Set() };
+  await applyHunk(patch, target, said);
+}
+
+async function applyHunk(patch, target, said = "") {
+  const opened = state.view;
+  await quiet(withBusy(said ? "Applying…" : "Applying the hunk…", async () => {
+    const result = await post(`/api/worktree/${target}-hunk`, { patch });
+    toast("ok", said || result.message);
+    await refresh();
+    if (opened) await openFileView(worktreeContext(opened.context.staged), opened.path);
+  }));
+}

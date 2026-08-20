@@ -5,9 +5,9 @@
 const fs = require("fs");
 const path = require("path");
 
-const source = fs.readFileSync(
-  path.join(__dirname, "..", "src", "gitsquid", "web", "assets", "viewer.js"), "utf8",
-);
+const source = ["viewer.js", "diff.js"]
+  .map((name) => fs.readFileSync(path.join(__dirname, "..", "src", "gitsquid", "web", "assets", name), "utf8"))
+  .join("\n");
 const exposed = new Function(`${source}\nreturn { parseDiff, inlineParts, filePathOf, fileStatusOf, commonRoot, linePatch };`)();
 
 let input = "";

@@ -208,7 +208,7 @@ and can end at `reverted`; illegal transitions are refused by the model layer, n
 | `phrasing.py` | How the product counts things, so nothing says "1 file(s)". |
 | `history.py` | Check out a commit, branch from it, cherry-pick, revert, reset, rebase — and abort or continue what conflicts. |
 | `registry.py` | The list of known repositories, shared by every session. |
-| `web/` | Loopback HTTP server and JSON API. The page is seven small scripts, one job each: `base` (elements, text, the API), `menu` (the context-menu component), `menus` (what each row offers), `sidebar`, `viewer` (the middle pane when it shows a file), `panels` (the right column), `actions`, and `app` (state, rows, selection, boot). `graph.js` lays out and paints the lanes. |
+| `web/` | Loopback HTTP server and JSON API. The page is small scripts, one job each: `base` (elements, text, the API), `menu` (the context-menu component), `menus` (what each row offers), `sidebar`, `viewer` (the middle pane when it shows a file), `diff` (how a patch is drawn and picked apart), `panels` (the right column), `actions`, and `app` (state, rows, selection, boot). `graph.js` lays out and paints the lanes. |
 | `workflow.py` | `ChangeService` — the core loop, independent of the CLI. |
 | `portability.py` | Export and import, with validation of untrusted files. |
 | `safety.py` | Redaction, path validation, input cleaning. |
