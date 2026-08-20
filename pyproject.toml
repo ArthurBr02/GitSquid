@@ -20,6 +20,9 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
+    # Drives the page itself. The browser binary is a separate download:
+    #   python -m playwright install webkit
+    "playwright>=1.40",
 ]
 
 [project.scripts]

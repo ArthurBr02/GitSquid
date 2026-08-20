@@ -39,6 +39,7 @@ see [Degraded mode](#degraded-mode).
 | `./scripts/install.sh` | Create `.venv`, install runtime + dev dependencies. |
 | `./scripts/dev.sh` | Editable install plus a `gitsquid doctor` smoke check. |
 | `./scripts/test.sh` | Run the whole test suite (`pytest`). |
+| `python -m playwright install webkit` | Once, to let the browser smoke test actually run a browser; it skips itself otherwise. |
 | `./scripts/build.sh` | Build the wheel and sdist into `dist/`. |
 | `./scripts/run.sh` | Production-style local run: build, install the wheel into `.venv-prod`, and launch `gitsquid ui` from it. |
 
