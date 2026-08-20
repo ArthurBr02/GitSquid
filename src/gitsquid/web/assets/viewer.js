@@ -252,6 +252,13 @@ function fileRowMenu(context, entry) {
     { label: "Blame", hint: "who wrote what", disabled: Boolean(entry.untracked),
       run: () => openBlame(context, entry.path) },
     { label: "File history", run: () => openFileHistory(entry.path) },
+    ...(context.kind === "commit" ? ["-", {
+      label: "Restore this version", hint: "into the working tree", danger: true,
+      run: confirmed(
+        `Bring ${entry.path} back as it was at ${context.where}? Your current version is overwritten.`,
+        "restore-file", { sha: context.rev, path: entry.path },
+      ),
+    }] : []),
     "-",
     { label: "Copy path", run: () => copy(entry.path, "Path") },
   ];

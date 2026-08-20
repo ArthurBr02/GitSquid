@@ -6,7 +6,9 @@ from pathlib import Path
 
 from . import gitlog
 from .phrasing import conflicts
-from .gitcmd import GitError, both, checked, require_branch, require_commit_ref, require_sha, run
+from .gitcmd import (
+    GitError, both, checked, require_branch, require_commit_ref, require_paths, require_sha, run,
+)
 
 RESET_MODES = {"soft", "mixed", "hard"}
 _CONTINUE = {
@@ -73,6 +75,14 @@ def rebase(repo: Path, target: str) -> str:
     branch = gitlog.current_branch(repo)
     _conflict_guard(repo, run(repo, [*_NO_EDITOR, "rebase", target], timeout=180), action="Rebase")
     return f"Replayed {branch} onto {target}."
+
+
+def restore_file(repo: Path, sha: str, path: str) -> str:
+    """Bring one file back as it was at a commit. It lands staged, like `git checkout` leaves it."""
+    sha = require_sha(sha)
+    require_paths([path])
+    checked(repo, ["checkout", sha, "--", path], action="Could not restore that version")
+    return f"Restored {path} as it was at {sha[:7]}, staged."
 
 
 def abort(repo: Path) -> str:

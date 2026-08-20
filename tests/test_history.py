@@ -147,3 +147,23 @@ class TestSkipping:
     def test_there_is_nothing_to_skip_in_a_quiet_repository(self, repo):
         with pytest.raises(GitError, match="Nothing to skip"):
             history.skip(repo)
+
+
+class TestRestoringOneFile:
+    def test_a_file_comes_back_as_it_was(self, repo):
+        original = (repo / "calc.py").read_text()
+        sha = commit_file(repo, "calc.py", "casse\n", "casse calc")
+        first = git(repo, "rev-parse", f"{sha}~1").stdout.strip()
+
+        assert "Restored" in history.restore_file(repo, first, "calc.py")
+        assert (repo / "calc.py").read_text() == original
+
+    def test_a_path_outside_the_repository_is_refused(self, repo):
+        sha = git(repo, "rev-parse", "HEAD").stdout.strip()
+        with pytest.raises(GitError, match="outside the repository"):
+            history.restore_file(repo, sha, "../../etc/passwd")
+
+    def test_a_file_absent_from_that_commit_is_reported(self, repo):
+        sha = git(repo, "rev-parse", "HEAD").stdout.strip()
+        with pytest.raises(GitError, match="Could not restore"):
+            history.restore_file(repo, sha, "jamais-vu.py")
