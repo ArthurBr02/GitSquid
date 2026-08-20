@@ -138,6 +138,34 @@ class Event:
         self.message = redact(self.message)[:4000]
 
 
+def _delete_samples(conn: sqlite3.Connection, table: str) -> int:
+    return conn.execute(f"DELETE FROM {table} WHERE is_sample=1").rowcount or 0
+
+
+def _row_to_run(row: sqlite3.Row) -> TestRun:
+    return TestRun(
+        id=row["id"],
+        change_id=row["change_id"],
+        command=row["command"],
+        exit_code=row["exit_code"],
+        duration_ms=row["duration_ms"],
+        output_tail=row["output_tail"],
+        is_sample=bool(row["is_sample"]),
+        created_at=row["created_at"],
+    )
+
+
+def _row_to_event(row: sqlite3.Row) -> Event:
+    return Event(
+        id=row["id"],
+        change_id=row["change_id"],
+        kind=row["kind"],
+        message=row["message"],
+        is_sample=bool(row["is_sample"]),
+        created_at=row["created_at"],
+    )
+
+
 def _row_to_change(row: sqlite3.Row) -> Change:
     change = Change.__new__(Change)
     change.id = row["id"]
@@ -233,8 +261,7 @@ class ChangeRepo:
         return int(self._conn.execute("SELECT COUNT(*) FROM changes").fetchone()[0])
 
     def delete_samples(self) -> int:
-        cur = self._conn.execute("DELETE FROM changes WHERE is_sample=1")
-        return cur.rowcount or 0
+        return _delete_samples(self._conn, "changes")
 
 
 class TestRunRepo:
@@ -264,23 +291,10 @@ class TestRunRepo:
         rows = self._conn.execute(
             "SELECT * FROM test_runs WHERE change_id=? ORDER BY id DESC", (change_id,)
         ).fetchall()
-        return [
-            TestRun(
-                id=row["id"],
-                change_id=row["change_id"],
-                command=row["command"],
-                exit_code=row["exit_code"],
-                duration_ms=row["duration_ms"],
-                output_tail=row["output_tail"],
-                is_sample=bool(row["is_sample"]),
-                created_at=row["created_at"],
-            )
-            for row in rows
-        ]
+        return [_row_to_run(row) for row in rows]
 
     def delete_samples(self) -> int:
-        cur = self._conn.execute("DELETE FROM test_runs WHERE is_sample=1")
-        return cur.rowcount or 0
+        return _delete_samples(self._conn, "test_runs")
 
 
 class EventLog:
@@ -302,34 +316,13 @@ class EventLog:
         rows = self._conn.execute(
             "SELECT * FROM events WHERE change_id=? ORDER BY id", (change_id,)
         ).fetchall()
-        return [
-            Event(
-                id=row["id"],
-                change_id=row["change_id"],
-                kind=row["kind"],
-                message=row["message"],
-                is_sample=bool(row["is_sample"]),
-                created_at=row["created_at"],
-            )
-            for row in rows
-        ]
+        return [_row_to_event(row) for row in rows]
 
     def recent(self, limit: int = 20) -> list[Event]:
         rows = self._conn.execute(
             "SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
-        return [
-            Event(
-                id=row["id"],
-                change_id=row["change_id"],
-                kind=row["kind"],
-                message=row["message"],
-                is_sample=bool(row["is_sample"]),
-                created_at=row["created_at"],
-            )
-            for row in rows
-        ]
+        return [_row_to_event(row) for row in rows]
 
     def delete_samples(self) -> int:
-        cur = self._conn.execute("DELETE FROM events WHERE is_sample=1")
-        return cur.rowcount or 0
+        return _delete_samples(self._conn, "events")
