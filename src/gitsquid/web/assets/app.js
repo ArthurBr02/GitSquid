@@ -22,6 +22,7 @@ const state = {
   counts: {},
   view: null,
   painting: null,
+  render: 0,
   limit: 80,
   diffView: {
     wrap: recall("diff.wrap", "off") === "on",

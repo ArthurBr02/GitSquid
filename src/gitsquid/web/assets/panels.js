@@ -115,6 +115,7 @@ function renderWorktreeDetail() {
 }
 
 async function openFileHistory(path) {
+  const token = newestRender();
   const detail = clear($("detail"));
   detail.append(el("div", { class: "empty-state" }, [el("p", { text: "Loading history…" })]));
   let payload;
@@ -124,6 +125,7 @@ async function openFileHistory(path) {
     toast("bad", error.message);
     return;
   }
+  if (token !== state.render) return;
   clear(detail);
   detail.append(el("div", { class: "detail-head" }, [
     el("h2", { text: path }),
@@ -171,10 +173,18 @@ async function changeAction(id, action) {
   }));
 }
 
+/* Two selections in flight would race, and the slower request would win the panel. */
+function newestRender() {
+  state.render += 1;
+  return state.render;
+}
+
 async function renderChangeDetail(id) {
+  const token = newestRender();
   const detail = clear($("detail"));
   detail.append(el("div", { class: "empty-state" }, [el("p", { text: "Loading change…" })]));
   const change = await api(`/api/changes/${id}`);
+  if (token !== state.render) return;
   clear(detail);
 
   const head = el("div", { class: "detail-head" }, [el("h2", { text: change.task })]);
@@ -268,9 +278,11 @@ async function renderChangeDetail(id) {
 }
 
 async function renderCommitDetail(sha) {
+  const token = newestRender();
   const detail = clear($("detail"));
   detail.append(el("div", { class: "empty-state" }, [el("p", { text: "Loading the commit…" })]));
   const commit = await api(`/api/commits/${sha}`);
+  if (token !== state.render) return;
   const context = commitContext(commit);
   const menu = () => commitMenu({ ...commit, kind: "commit" });
   clear(detail);
