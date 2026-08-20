@@ -318,52 +318,52 @@ def file_history(repo: Path, path: str, *, limit: int = 50) -> list[dict[str, st
 MAX_BLAME_LINES = 8000
 
 
-def blame(repo: Path, path: str, *, rev: str = "") -> dict:
-    """Who last touched each line; an empty `rev` means the working tree as it stands."""
-    if not is_safe_relative_path(path):
-        raise ValueError("Refusing a path outside the repository.")
-    if rev:
-        rev = _commit_of(repo, rev)
-    args = ["blame", "--porcelain", "-w"]
-    if rev:
-        args.append(rev)
-    result = run(repo, [*args, "--", path], timeout=120)
-    if result.returncode != 0:
-        raise ValueError(
-            "git cannot attribute this file — it is untracked, binary, or absent at that commit."
-        )
-
-    authors: dict[str, dict[str, str]] = {}
+def _parse_blame(porcelain: str) -> list[dict]:
+    """git repeats a commit's details once, then only its sha: carry them across the lines."""
+    known: dict[str, dict[str, str]] = {}
     lines: list[dict] = []
     current = ""
-    for raw in result.stdout.split("\n"):
+    for raw in porcelain.split("\n"):
         if raw.startswith("\t"):
-            meta = authors.get(current, {})
+            details = known.get(current, {})
             lines.append({
                 "sha": current,
                 "short": current[:7],
-                "author": meta.get("author", ""),
-                "date": meta.get("date", ""),
-                "summary": meta.get("summary", ""),
+                "author": details.get("author", ""),
+                "date": details.get("date", ""),
+                "summary": details.get("summary", ""),
                 "text": raw[1:],
             })
             if len(lines) >= MAX_BLAME_LINES:
                 break
-            continue
-        if not raw:
-            continue
-        head, _, rest = raw.partition(" ")
-        if len(head) == 40 and all(char in "0123456789abcdef" for char in head):
-            current = head
-            authors.setdefault(current, {})
-        elif current:
-            if raw.startswith("author "):
-                authors[current]["author"] = rest
-            elif raw.startswith("author-time "):
-                authors[current]["date"] = _iso(rest.split(" ")[0])
-            elif raw.startswith("summary "):
-                authors[current]["summary"] = rest
-    return {"path": path, "rev": rev, "lines": lines, "truncated": len(lines) >= MAX_BLAME_LINES}
+        elif raw:
+            head, _, rest = raw.partition(" ")
+            if len(head) == 40 and all(char in "0123456789abcdef" for char in head):
+                current = head
+                known.setdefault(current, {})
+            elif current and raw.startswith(("author ", "author-time ", "summary ")):
+                field = {"author": "author", "author-time": "date", "summary": "summary"}[head]
+                known[current][field] = _iso(rest.split(" ")[0]) if field == "date" else rest
+    return lines
+
+
+def blame(repo: Path, path: str, *, rev: str = "") -> dict:
+    """Who last touched each line; an empty `rev` means the working tree as it stands."""
+    if not is_safe_relative_path(path):
+        raise ValueError("Refusing a path outside the repository.")
+    revision = [_commit_of(repo, rev)] if rev else []
+    result = run(repo, ["blame", "--porcelain", "-w", *revision, "--", path], timeout=120)
+    if result.returncode != 0:
+        raise ValueError(
+            "git cannot attribute this file — it is untracked, binary, or absent at that commit."
+        )
+    lines = _parse_blame(result.stdout)
+    return {
+        "path": path,
+        "rev": revision[0] if revision else "",
+        "lines": lines,
+        "truncated": len(lines) >= MAX_BLAME_LINES,
+    }
 
 
 def _iso(epoch: str) -> str:
