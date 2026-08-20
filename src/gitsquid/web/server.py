@@ -247,6 +247,12 @@ class UIServer:
         except ValueError as exc:
             raise ApiError(str(exc)) from exc
 
+    def commit_patch(self, sha: str, path: str) -> dict:
+        try:
+            return gitlog.commit_patch(self.settings.repo, sha, path or None)
+        except ValueError as exc:
+            raise ApiError(str(exc)) from exc
+
     # --- write endpoints ------------------------------------------------
 
     def reindex(self) -> dict:
@@ -526,7 +532,14 @@ class _Handler(BaseHTTPRequestHandler):
             elif route.startswith("/api/changes/"):
                 self._json(HTTPStatus.OK, self.ui.change_detail(int(route.rsplit("/", 1)[1])))
             elif route.startswith("/api/commits/"):
-                self._json(HTTPStatus.OK, self.ui.commit_detail(route.rsplit("/", 1)[1]))
+                parts = route.removeprefix("/api/commits/").split("/")
+                if len(parts) == 1:
+                    self._json(HTTPStatus.OK, self.ui.commit_detail(parts[0]))
+                elif len(parts) == 2 and parts[1] == "patch":
+                    self._json(HTTPStatus.OK, self.ui.commit_patch(
+                        parts[0], (query.get("path") or [""])[0]))
+                else:
+                    self._json(HTTPStatus.NOT_FOUND, {"error": "Not found."})
             else:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "Not found."})
         except ApiError as exc:

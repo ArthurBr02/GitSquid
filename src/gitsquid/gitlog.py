@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .gitcmd import run
+from .safety import is_safe_relative_path
 
 MAX_PATCH_CHARS = 400_000
 SEP = "\x1f"
@@ -88,40 +89,95 @@ def commits(repo: Path, *, limit: int = 80) -> list[Commit]:
     return found
 
 
-def commit_detail(repo: Path, sha: str) -> dict:
-    """Body and touched files for one commit. `sha` is validated before it reaches git."""
+def _require_sha(sha: str) -> str:
     if not sha or len(sha) > 64 or not all(char in "0123456789abcdefABCDEF" for char in sha):
         raise ValueError("Not a commit id.")
-    header = run(repo, ["show", "-s", f"--format={SEP.join(['%H', '%P', '%an', '%aI', '%s', '%D'])}", sha])
+    return sha
+
+
+def _merge_view(parents: list[str]) -> list[str]:
+    """A merge shows no diff at all by default; a reader wants what it brought in."""
+    return ["-m", "--first-parent"] if len(parents) > 1 else []
+
+
+def _touched_files(repo: Path, sha: str, view: list[str]) -> list[dict]:
+    """One entry per file: its status, and the lines it gained and lost."""
+    counts: dict[str, tuple[int | None, int | None]] = {}
+    numstat = run(repo, ["show", *view, "--numstat", "--format=", sha]).stdout
+    for line in numstat.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        added, removed, path = parts[0], parts[1], parts[-1]
+        # git writes "-" for a binary file: it has no line count, not a count of zero.
+        counts[path] = (
+            None if added == "-" else int(added),
+            None if removed == "-" else int(removed),
+        )
+
+    files = []
+    raw = run(repo, ["show", *view, "--name-status", "--format=", sha]).stdout
+    for line in raw.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2 or not parts[0]:
+            continue
+        status, path = parts[0], parts[-1]
+        added, removed = counts.get(path, (0, 0))
+        files.append({
+            "status": status[0],
+            "score": status[1:],
+            "path": path,
+            "original": parts[1] if status.startswith(("R", "C")) and len(parts) > 2 else None,
+            "added": added,
+            "removed": removed,
+            "binary": added is None,
+        })
+    return files
+
+
+def commit_detail(repo: Path, sha: str) -> dict:
+    """Everything the panel shows except the patches, which are fetched one file at a time."""
+    _require_sha(sha)
+    header = run(repo, ["show", "-s", f"--format={SEP.join(['%H', '%P', '%an', '%ae', '%aI', '%s', '%D'])}", sha])
     # Never str.strip() a record: Python counts the separator itself as whitespace, so a
     # commit that carries no ref would lose its last field.
     fields = header.stdout.rstrip("\n").split(SEP)
-    if header.returncode != 0 or len(fields) < 6:
+    if header.returncode != 0 or len(fields) < 7:
         raise ValueError("No such commit.")
     parents = fields[1].split()
-    # A merge shows no diff at all by default; what a reader wants to see is what it brought in.
-    view = ["-m", "--first-parent"] if len(parents) > 1 else []
-    body = run(repo, ["show", "-s", "--format=%B", sha]).stdout.strip()
-    stat = run(repo, ["show", *view, "--stat", "--format=", sha]).stdout.strip()
-    files = run(repo, ["show", *view, "--name-status", "--format=", sha]).stdout.strip()
-    patch = run(repo, ["show", *view, "--no-color", "--format=", sha]).stdout
+    files = _touched_files(repo, sha, _merge_view(parents))
     return {
         "sha": fields[0],
         "short": fields[0][:7],
         "parents": parents,
         "merge": len(parents) > 1,
         "author": fields[2],
-        "date": fields[3],
-        "subject": fields[4],
-        "refs": [ref.strip() for ref in fields[5].split(",") if ref.strip()],
-        "body": body,
-        "stat": stat,
+        "email": fields[3],
+        "date": fields[4],
+        "subject": fields[5],
+        "refs": [ref.strip() for ref in fields[6].split(",") if ref.strip()],
+        "body": run(repo, ["show", "-s", "--format=%B", sha]).stdout.strip(),
+        "files": files,
+        "added": sum(file["added"] or 0 for file in files),
+        "removed": sum(file["removed"] or 0 for file in files),
+    }
+
+
+def commit_patch(repo: Path, sha: str, path: str | None = None) -> dict:
+    """The patch of one file in a commit — or of the whole commit when no path is given."""
+    _require_sha(sha)
+    parents = run(repo, ["show", "-s", "--format=%P", sha]).stdout.split()
+    args = ["show", *_merge_view(parents), "--no-color", "--format=", "-M", sha]
+    if path:
+        if not is_safe_relative_path(path):
+            raise ValueError("Refusing a path outside the repository.")
+        args += ["--", path]
+    patch = run(repo, args).stdout
+    return {
+        "sha": sha,
+        "path": path or "",
         "diff": patch[:MAX_PATCH_CHARS],
         "truncated": len(patch) > MAX_PATCH_CHARS,
-        "files": [
-            {"status": parts[0], "path": parts[-1]}
-            for parts in (line.split("\t") for line in files.splitlines() if line.strip())
-        ],
     }
 
 

@@ -102,10 +102,50 @@ class TestCommitDetail:
         commit_file(repo, "principal.py", "M = 1\n", "travail principal")
         git(repo, "merge", "-q", "--no-ff", "cote", "-m", "fusion")
 
-        detail = gitlog.commit_detail(repo, git(repo, "rev-parse", "HEAD").stdout.strip())
+        head = git(repo, "rev-parse", "HEAD").stdout.strip()
+        detail = gitlog.commit_detail(repo, head)
         assert detail["merge"] is True
         assert [file["path"] for file in detail["files"]] == ["apporte.py"]
-        assert "apporte.py" in detail["diff"]
+        assert "apporte.py" in gitlog.commit_patch(repo, head)["diff"]
+
+    def test_each_file_carries_the_lines_it_gained_and_lost(self, repo):
+        (repo / "calc.py").write_text("VALEUR = 1\nVALEUR2 = 2\n", encoding="utf-8")
+        (repo / "neuf.py").write_text("N = 1\n", encoding="utf-8")
+        (repo / "README.md").unlink()
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "trois sortes de changement")
+
+        detail = gitlog.commit_detail(repo, git(repo, "rev-parse", "HEAD").stdout.strip())
+        by_path = {file["path"]: file for file in detail["files"]}
+        assert by_path["neuf.py"]["status"] == "A" and by_path["neuf.py"]["added"] == 1
+        assert by_path["README.md"]["status"] == "D" and by_path["README.md"]["added"] == 0
+        assert by_path["calc.py"]["status"] == "M"
+        assert detail["added"] == sum(file["added"] for file in detail["files"])
+
+    def test_a_binary_file_has_no_line_count(self, repo):
+        (repo / "image.bin").write_bytes(bytes(range(256)))
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "ajoute un binaire")
+
+        detail = gitlog.commit_detail(repo, git(repo, "rev-parse", "HEAD").stdout.strip())
+        entry = detail["files"][0]
+        assert entry["binary"] is True and entry["added"] is None
+
+    def test_a_patch_can_be_fetched_for_one_file_alone(self, repo):
+        (repo / "calc.py").write_text("VALEUR = 1\n", encoding="utf-8")
+        (repo / "autre.py").write_text("A = 1\n", encoding="utf-8")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-q", "-m", "deux fichiers")
+        head = git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        patch = gitlog.commit_patch(repo, head, "calc.py")
+        assert "calc.py" in patch["diff"] and "autre.py" not in patch["diff"]
+        assert patch["truncated"] is False
+
+    def test_a_patch_path_outside_the_repository_is_refused(self, repo):
+        head = git(repo, "rev-parse", "HEAD").stdout.strip()
+        with pytest.raises(ValueError, match="outside the repository"):
+            gitlog.commit_patch(repo, head, "../../etc/passwd")
 
     def test_an_unknown_commit_is_reported(self, repo):
         with pytest.raises(ValueError, match="No such commit"):

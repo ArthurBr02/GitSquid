@@ -18,10 +18,9 @@ const state = {
   filter: "all",
   query: "",
   selected: null,
-  selectedFile: null,
-  fileDiff: null,
   commitMessage: "",
   counts: {},
+  view: null,
   amend: false,
   busy: false,
 };
@@ -435,7 +434,7 @@ function fileMenu(entry, staged) {
     { header: entry.path },
     { label: staged ? "Unstage" : "Stage",
       run: () => worktreeAction(staged ? "unstage" : "stage", [entry.path]) },
-    { label: "Open the diff", run: () => openFile(entry.path, staged) },
+    { label: "Open the diff", run: () => openFileView(worktreeContext(staged), entry.path) },
     { label: "File history", run: () => openFileHistory(entry.path) },
     "-",
     { label: "Ignore it", hint: ".gitignore", disabled: staged,
@@ -494,8 +493,10 @@ function treeRow({ id, label, meta, icon, sub, current, className = "", onclick,
   return menu ? Menu.attach(node, menu) : node;
 }
 
+const CLOSED_BY_DEFAULT = new Set(["remotes", "tags"]);
+
 function section(key, { title, count, action, rows, empty }) {
-  const open = recall(`section.${key}`, "open") === "open";
+  const open = recall(`section.${key}`, CLOSED_BY_DEFAULT.has(key) ? "closed" : "open") === "open";
   const head = el("summary", { class: "section-head" }, [
     el("span", { class: "caret", "aria-hidden": "true", text: "▸" }),
     el("span", { class: "section-title", text: title }),
@@ -700,6 +701,200 @@ function moreMenu() {
   ];
 }
 
+/* ---------- the middle pane: the graph, or one file of it ---------- */
+
+/* A context knows which files it holds and how to fetch the patch of one of them. */
+function commitContext(commit) {
+  return {
+    kind: "commit",
+    where: commit.short,
+    files: commit.files,
+    fetch: (path) => api(`/api/commits/${commit.sha}/patch?path=${encodeURIComponent(path)}`),
+  };
+}
+
+function worktreeContext(staged) {
+  const files = state.worktree.files
+    .filter((file) => (staged ? file.staged : file.unstaged || file.untracked))
+    .map((file) => ({
+      path: file.path,
+      status: staged ? file.index_code : (file.untracked ? "A" : file.work_code),
+      untracked: file.untracked,
+    }));
+  return {
+    kind: "worktree",
+    staged,
+    where: staged ? "staged" : "working tree",
+    files,
+    fetch: (path) => api(`/api/filediff?path=${encodeURIComponent(path)}&staged=${staged ? 1 : 0}`),
+    hunks: (entry) => (entry && !entry.untracked ? { staged } : null),
+  };
+}
+
+function changeContext(change) {
+  const files = parseDiff(change.diff).map((file) => ({
+    path: filePathOf(file),
+    status: fileStatusOf(file),
+    added: file.hunks.reduce((n, hunk) => n + hunk.lines.filter((l) => l.startsWith("+")).length, 0),
+    removed: file.hunks.reduce((n, hunk) => n + hunk.lines.filter((l) => l.startsWith("-")).length, 0),
+    text: [...file.header, ...file.hunks.flatMap((hunk) => hunk.lines)].join("\n") + "\n",
+  }));
+  return {
+    kind: "change",
+    where: `change #${change.id}`,
+    files,
+    fetch: (path) => Promise.resolve({ diff: files.find((file) => file.path === path)?.text || "" }),
+  };
+}
+
+function filePathOf(file) {
+  const header = file.header.find((line) => line.startsWith("diff --git ")) || "";
+  const match = /^diff --git a\/(.+?) b\/(.+)$/.exec(header);
+  if (match) return match[2];
+  const plus = file.header.find((line) => line.startsWith("+++ "));
+  return plus ? plus.slice(4).replace(/^b\//, "") : "(unknown file)";
+}
+
+function fileStatusOf(file) {
+  if (file.header.some((line) => line.startsWith("new file"))) return "A";
+  if (file.header.some((line) => line.startsWith("deleted file"))) return "D";
+  if (file.header.some((line) => line.startsWith("rename "))) return "R";
+  return "M";
+}
+
+async function openFileView(context, path) {
+  state.view = { context, path, diff: null, loading: true };
+  renderViewer();
+  try {
+    const payload = await context.fetch(path);
+    if (state.view && state.view.path === path) {
+      state.view = { ...state.view, diff: payload.diff, truncated: payload.truncated, loading: false };
+    }
+  } catch (error) {
+    state.view = { ...state.view, diff: "", loading: false, error: error.message };
+  }
+  renderViewer();
+  markOpenFile();
+}
+
+function closeViewer() {
+  state.view = null;
+  renderViewer();
+  markOpenFile();
+}
+
+/* Walking a commit's files with the arrow keys is the whole point of the file list. */
+function viewerStep(delta) {
+  if (!state.view) return;
+  const paths = state.view.context.files.map((file) => file.path);
+  const at = paths.indexOf(state.view.path);
+  const next = paths[Math.min(Math.max(at + delta, 0), paths.length - 1)];
+  if (next && next !== state.view.path) openFileView(state.view.context, next);
+}
+
+function markOpenFile() {
+  const open = state.view ? state.view.path : null;
+  for (const row of document.querySelectorAll(".file-list .file-row")) {
+    row.setAttribute("aria-current", row.dataset.path === open ? "true" : "false");
+  }
+}
+
+function fileStats(entry) {
+  if (entry.binary) return [el("span", { class: "stat-bin", text: "binary" })];
+  if (entry.added === undefined) return [];
+  return [
+    el("span", { class: "stat-add", text: `+${entry.added}` }),
+    el("span", { class: "stat-del", text: `−${entry.removed}` }),
+  ];
+}
+
+/* The same file row in a commit, in a change, and in the working tree. */
+function fileListRow(context, entry, extras = []) {
+  const [dir, name] = splitPath(entry.path);
+  const row = el("div", {
+    class: "file-row",
+    role: "option",
+    tabindex: "0",
+    "data-path": entry.path,
+    "aria-current": state.view && state.view.path === entry.path ? "true" : "false",
+    "aria-label": `${entry.path}, ${STATUS_WORDS[entry.status] || "changed"}`,
+    onclick: () => openFileView(context, entry.path),
+    onkeydown: (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openFileView(context, entry.path); }
+    },
+  }, [
+    el("span", { class: `code ${entry.status}`, title: STATUS_WORDS[entry.status] || "", text: entry.status }),
+    el("span", { class: "path", title: entry.original ? `${entry.original} → ${entry.path}` : entry.path },
+      [el("span", { class: "dir", text: `${dir}\u200e` }), el("span", { class: "name", text: name })]),
+    entry.sensitive ? el("span", { class: "warn-flag", title: "Credential-shaped file — never indexed", text: "⚠" }) : null,
+    el("span", { class: "stats" }, fileStats(entry)),
+    ...extras,
+  ]);
+  return row;
+}
+
+const STATUS_WORDS = {
+  A: "added", M: "modified", D: "deleted", R: "renamed", C: "copied",
+  U: "conflicted", T: "type changed", "?": "untracked",
+};
+
+function renderViewer() {
+  const viewer = $("viewer");
+  const graphIsShowing = !state.view;
+  $("pane-head").hidden = !graphIsShowing;
+  $("rows-wrap").hidden = !graphIsShowing;
+  $("graph-empty").hidden = !graphIsShowing || Boolean(state.rows.filter(matches).length);
+  viewer.hidden = graphIsShowing;
+  if (graphIsShowing) return;
+
+  const { context, path, diff, loading, truncated, error } = state.view;
+  const entry = context.files.find((file) => file.path === path) || { status: "M", path };
+  const [dir, name] = splitPath(path || "the whole patch");
+  const at = context.files.findIndex((file) => file.path === path);
+
+  clear($("viewer-head")).append(
+    el("span", { class: `code ${entry.status}`, title: STATUS_WORDS[entry.status] || "", text: entry.status }),
+    el("span", { class: "path", title: path }, [el("span", { class: "dir", text: `${dir}\u200e` }), el("span", { class: "name", text: name })]),
+    el("span", { class: "stats" }, fileStats(entry)),
+    el("span", { class: "where", text: context.where }),
+    el("span", { class: "viewer-nav" }, [
+      el("button", {
+        type: "button", class: "icon-btn", title: "Previous file (↑)", "aria-label": "Previous file",
+        disabled: at <= 0, onclick: () => viewerStep(-1), text: "‹",
+      }),
+      el("button", {
+        type: "button", class: "icon-btn", title: "Next file (↓)", "aria-label": "Next file",
+        disabled: at < 0 || at >= context.files.length - 1, onclick: () => viewerStep(1), text: "›",
+      }),
+    ]),
+    el("button", {
+      type: "button", class: "icon-btn", title: "Back to the graph (Esc)",
+      "aria-label": "Back to the graph", onclick: closeViewer, text: "✕",
+    }),
+  );
+
+  const body = clear($("viewer-body"));
+  if (loading) {
+    body.append(el("p", { class: "empty-state", text: "Loading the diff…" }));
+    return;
+  }
+  if (error) {
+    body.append(el("p", { class: "banner bad", text: error }));
+    return;
+  }
+  if (!diff || !diff.trim()) {
+    body.append(el("p", { class: "empty-state", text: entry.binary
+      ? "Binary file — nothing to show as text."
+      : "No textual difference for this file." }));
+    return;
+  }
+  const singleFile = Boolean(path);
+  body.append(renderDiff(diff, context.hunks ? context.hunks(entry) : null, { headers: !singleFile }));
+  if (truncated) {
+    body.append(el("p", { class: "banner warn", text: "This patch is very large and was truncated for display." }));
+  }
+}
+
 /* ---------- diff rendering with line numbers ---------- */
 
 function parseDiff(text) {
@@ -752,10 +947,10 @@ function hunkBar(file, hunk, actions) {
 }
 
 /* `actions` is set only for a working-tree file, where a single hunk can be staged. */
-function renderDiff(diff, actions = null) {
+function renderDiff(diff, actions = null, { headers = true } = {}) {
   const box = el("pre", { class: "diff" });
   for (const file of parseDiff(diff)) {
-    for (const line of file.header) box.append(diffLine(line, "meta", ""));
+    if (headers) for (const line of file.header) box.append(diffLine(line, "meta", ""));
     for (const hunk of file.hunks) {
       if (actions) box.append(hunkBar(file, hunk, actions));
       let oldLine = 0;
@@ -782,51 +977,22 @@ function renderDiff(diff, actions = null) {
 }
 
 async function applyHunk(patch, target) {
-  const opened = state.fileDiff;
+  const opened = state.view;
   await quiet(withBusy("Applying the hunk…", async () => {
     toast("ok", (await post(`/api/worktree/${target}-hunk`, { patch })).message);
     await refresh();
-    if (opened) await openFile(opened.path, opened.staged);
+    if (opened) await openFileView(worktreeContext(opened.context.staged), opened.path);
   }));
 }
 
 /* ---------- working tree detail ---------- */
-
-function fileRow(entry, staged) {
-  const code = staged ? entry.index_code : (entry.untracked ? "A" : entry.work_code);
-  const [dir, name] = splitPath(entry.path);
-  const key = `${staged ? "s" : "u"}:${entry.path}`;
-
-  return Menu.attach(el("div", {
-    class: "file-row",
-    role: "option",
-    tabindex: "0",
-    "aria-current": state.selectedFile === key ? "true" : "false",
-    "aria-label": `${entry.path}, ${staged ? entry.index_label : entry.work_label || "untracked"}`,
-    onclick: () => openFile(entry.path, staged),
-    onkeydown: (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openFile(entry.path, staged); } },
-  }, [
-    el("span", { class: `code ${code}`, title: staged ? entry.index_label : entry.work_label, text: code }),
-    el("span", { class: "path" }, [el("span", { class: "dir", text: dir }), el("span", { text: name })]),
-    entry.sensitive ? el("span", { class: "warn-flag", title: "Credential-shaped file — never indexed", text: "⚠" }) : null,
-    el("button", {
-      type: "button", class: "btn tiny ghost stage-btn",
-      "aria-label": `${staged ? "Unstage" : "Stage"} ${entry.path}`,
-      onclick: (event) => { event.stopPropagation(); worktreeAction(staged ? "unstage" : "stage", [entry.path]); },
-      text: staged ? "Unstage" : "Stage",
-    }),
-    el("button", {
-      type: "button", class: "row-menu", "aria-label": `Actions for ${entry.path}`,
-      onclick: (event) => { event.stopPropagation(); Menu.show(event, fileMenu(entry, staged)); },
-    }, ["⋯"]),
-  ]), () => fileMenu(entry, staged));
-}
 
 function renderWorktreeDetail() {
   const detail = clear($("detail"));
   const files = state.worktree.files;
   const staged = files.filter((file) => file.staged);
   const unstaged = files.filter((file) => file.unstaged || file.untracked);
+  const repo = state.data.state.repo;
 
   detail.append(el("div", { class: "detail-head" }, [
     el("h2", { text: "Uncommitted changes" }),
@@ -838,7 +1004,6 @@ function renderWorktreeDetail() {
     ]),
   ]));
 
-  const repo = state.data.state.repo;
   const message = el("textarea", {
     id: "commit-message", rows: "3", maxlength: "4000",
     placeholder: "Commit message — describe what this commit does",
@@ -876,6 +1041,7 @@ function renderWorktreeDetail() {
   ]));
 
   for (const [label, list, isStaged] of [["Staged", staged, true], ["Unstaged", unstaged, false]]) {
+    const context = worktreeContext(isStaged);
     const group = el("div", { class: "file-group" });
     group.append(el("div", { class: "file-group-head" }, [
       el("span", { text: label }),
@@ -887,37 +1053,34 @@ function renderWorktreeDetail() {
       }) : null,
     ]));
     if (!list.length) {
-      group.append(el("p", { class: "empty-state", style: "padding:14px 18px;text-align:left", text: isStaged ? "Nothing staged yet." : "No unstaged edit." }));
+      group.append(el("p", { class: "tree-empty", style: "padding:8px 16px",
+        text: isStaged ? "Nothing staged yet." : "No unstaged edit." }));
     }
-    for (const entry of list) group.append(fileRow(entry, isStaged));
+    const listBox = el("div", { class: "file-list", role: "listbox", "aria-label": `${label} files` });
+    for (const entry of list) {
+      const row = fileListRow(context, {
+        path: entry.path,
+        status: isStaged ? entry.index_code : (entry.untracked ? "?" : entry.work_code),
+        original: entry.original,
+        sensitive: entry.sensitive,
+        untracked: entry.untracked,
+      }, [
+        el("button", {
+          type: "button", class: "btn tiny ghost stage-btn",
+          "aria-label": `${isStaged ? "Unstage" : "Stage"} ${entry.path}`,
+          onclick: (event) => { event.stopPropagation(); worktreeAction(isStaged ? "unstage" : "stage", [entry.path]); },
+          text: isStaged ? "Unstage" : "Stage",
+        }),
+        el("button", {
+          type: "button", class: "row-menu", "aria-label": `Actions for ${entry.path}`,
+          onclick: (event) => { event.stopPropagation(); Menu.show(event, fileMenu(entry, isStaged)); },
+        }, ["⋯"]),
+      ]);
+      listBox.append(Menu.attach(row, () => fileMenu(entry, isStaged)));
+    }
+    group.append(listBox);
     detail.append(group);
   }
-
-  if (state.fileDiff) {
-    detail.append(el("div", { class: "diff-head" }, [
-      el("span", { text: state.fileDiff.path }),
-      el("span", { class: `tag ${state.fileDiff.staged ? "verified" : "applied"}`, text: state.fileDiff.staged ? "staged" : "unstaged" }),
-    ]));
-    const entry = files.find((file) => file.path === state.fileDiff.path);
-    const hunks = entry && !entry.untracked ? { staged: state.fileDiff.staged } : null;
-    detail.append(el("section", { class: "detail-section" }, [
-      state.fileDiff.diff.trim()
-        ? renderDiff(state.fileDiff.diff, hunks)
-        : el("p", { class: "prose", text: "No textual diff — the file may be binary or unchanged." }),
-    ]));
-  }
-}
-
-async function openFile(path, staged) {
-  state.selectedFile = `${staged ? "s" : "u"}:${path}`;
-  renderWorktreeDetail();
-  try {
-    state.fileDiff = await api(`/api/filediff?path=${encodeURIComponent(path)}&staged=${staged ? 1 : 0}`);
-  } catch (error) {
-    state.fileDiff = { path, staged, diff: "" };
-    toast("bad", error.message);
-  }
-  renderWorktreeDetail();
 }
 
 async function openFileHistory(path) {
@@ -965,8 +1128,7 @@ async function worktreeAction(action, paths, extra = {}) {
   await quiet(withBusy(`Running ${action}…`, async () => {
     const result = await post(`/api/worktree/${action}`, { paths, ...extra });
     toast("ok", result.message);
-    state.fileDiff = null;
-    state.selectedFile = null;
+    closeViewer();
     await refresh();
   }));
 }
@@ -983,8 +1145,7 @@ async function commitStaged() {
     toast("ok", result.message);
     state.commitMessage = "";
     state.amend = false;
-    state.fileDiff = null;
-    state.selectedFile = null;
+    closeViewer();
     await refresh(false);
   }));
 }
@@ -1103,7 +1264,19 @@ async function renderChangeDetail(id) {
     facts.append(el("dt", { text: label }), el("dd", { text: value }));
   }
   detail.append(el("section", { class: "detail-section" }, [el("h3", { text: "Details" }), facts]));
-  detail.append(el("section", { class: "detail-section" }, [el("h3", { text: "Diff" }), renderDiff(change.diff)]));
+  const context = changeContext(change);
+  const list = el("div", { class: "file-list", role: "listbox", "aria-label": "Files in this change" });
+  for (const entry of context.files) list.append(fileListRow(context, entry));
+  detail.append(el("section", { class: "detail-section files-section" }, [
+    el("h3", {}, [
+      `Files (${context.files.length})`,
+      el("span", { class: "totals" }, [
+        el("span", { class: "stat-add", text: `+${change.added}` }),
+        el("span", { class: "stat-del", text: `−${change.removed}` }),
+      ]),
+    ]),
+    context.files.length ? list : el("p", { class: "prose", text: "This patch touches no file." }),
+  ]));
 
   const runs = el("section", { class: "detail-section" }, [el("h3", { text: "Test runs" })]);
   if (!change.test_runs.length) {
@@ -1134,15 +1307,22 @@ async function renderChangeDetail(id) {
 
 async function renderCommitDetail(sha) {
   const detail = clear($("detail"));
+  detail.append(el("div", { class: "empty-state" }, [el("p", { text: "Loading the commit…" })]));
   const commit = await api(`/api/commits/${sha}`);
+  const context = commitContext(commit);
   const menu = () => commitMenu({ ...commit, kind: "commit" });
+  clear(detail);
 
   const head = el("div", { class: "detail-head" }, [
     el("h2", { text: commit.subject || "(no message)" }),
     el("div", { class: "detail-sub" }, [
-      el("span", { text: commit.short }),
+      el("button", {
+        type: "button", class: "sha-copy", title: "Copy the full SHA",
+        onclick: () => copy(commit.sha, "SHA"), text: commit.short,
+      }),
       el("span", { text: commit.author }),
-      el("span", { class: "relative", text: relativeTime(commit.date) }),
+      el("span", { class: "relative", title: commit.date, text: relativeTime(commit.date) }),
+      commit.merge ? el("span", { class: "tag applied", text: "merge" }) : null,
       ...commit.refs.map((ref) => el("span", { class: "tag ref", text: ref })),
     ]),
     el("div", { class: "detail-actions" }, [
@@ -1150,29 +1330,32 @@ async function renderCommitDetail(sha) {
         type: "button", class: "btn ghost", "aria-haspopup": "menu",
         onclick: (event) => Menu.show(event, menu()), text: "Actions ▾",
       }),
+      el("button", {
+        type: "button", class: "btn ghost",
+        onclick: () => openFileView({ ...context, files: [] }, ""), text: "Whole patch",
+      }),
     ]),
   ]);
   detail.append(Menu.attach(head, menu));
 
-  if (commit.body && commit.body !== commit.subject) {
+  const extra = commit.body.split("\n").slice(1).join("\n").trim();
+  if (extra) {
     detail.append(el("section", { class: "detail-section" }, [
-      el("h3", { text: "Message" }), el("p", { class: "prose", text: commit.body }),
+      el("p", { class: "prose message-body", text: extra }),
     ]));
   }
 
-  const files = el("ul", { class: "files" });
-  for (const file of commit.files) {
-    files.append(el("li", {}, [el("span", { class: "st", text: file.status }), el("span", { text: file.path })]));
-  }
-  detail.append(el("section", { class: "detail-section" }, [
-    el("h3", { text: `Files (${commit.files.length})` }),
-    commit.files.length ? files : el("p", { class: "prose", text: "No file changed." }),
-  ]));
-
-  detail.append(el("section", { class: "detail-section" }, [
-    el("h3", { text: "Diff" }),
-    commit.diff.trim() ? renderDiff(commit.diff) : el("p", { class: "prose", text: "No textual diff." }),
-    commit.truncated ? el("p", { class: "banner warn", text: "This patch is very large and was truncated for display." }) : null,
+  const list = el("div", { class: "file-list", role: "listbox", "aria-label": "Files in this commit" });
+  for (const entry of commit.files) list.append(fileListRow(context, entry));
+  detail.append(el("section", { class: "detail-section files-section" }, [
+    el("h3", {}, [
+      `Files (${commit.files.length})`,
+      el("span", { class: "totals" }, [
+        el("span", { class: "stat-add", text: `+${commit.added}` }),
+        el("span", { class: "stat-del", text: `−${commit.removed}` }),
+      ]),
+    ]),
+    commit.files.length ? list : el("p", { class: "prose", text: "No file changed." }),
   ]));
 }
 
@@ -1180,7 +1363,7 @@ async function renderCommitDetail(sha) {
 
 function select(key) {
   state.selected = key;
-  if (key !== "wip") { state.selectedFile = null; state.fileDiff = null; }
+  if (state.view) closeViewer();
   renderRows();
   const worktreeRow = $("wip-row");
   if (worktreeRow) worktreeRow.setAttribute("aria-current", key === "wip" ? "true" : "false");
@@ -1355,8 +1538,7 @@ async function openRepo(path) {
     $("repo-path").value = "";
     toast("ok", result.message);
     state.selected = null;
-    state.selectedFile = null;
-    state.fileDiff = null;
+    state.view = null;
     state.commitMessage = "";
     await refresh(false);
   } catch (failure) {
@@ -1514,6 +1696,15 @@ function bind() {
     const typing = ["INPUT", "TEXTAREA"].includes(event.target.tagName);
     if (event.key === "Escape" && typing) event.target.blur();
     if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
+
+    if (state.view) {
+      const inViewer = {
+        Escape: closeViewer,
+        ArrowDown: () => viewerStep(1), j: () => viewerStep(1),
+        ArrowUp: () => viewerStep(-1), k: () => viewerStep(-1),
+      }[event.key];
+      if (inViewer) { event.preventDefault(); inViewer(); return; }
+    }
 
     const actions = {
       "/": () => $("search").focus(),

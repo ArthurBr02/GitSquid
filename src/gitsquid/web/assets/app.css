@@ -583,3 +583,56 @@ body.resizing { cursor: col-resize; user-select: none; }
   .layout { grid-template-columns: var(--sidebar-w, 200px) 4px 1fr; }
   .detail, #resize-right { display: none; }
 }
+
+/* ---------- the middle pane as a file viewer ---------- */
+.viewer { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+.viewer-head {
+  display: flex; align-items: center; gap: var(--s2);
+  flex: 0 0 auto;
+  padding: 7px var(--s3);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-raised);
+}
+.viewer-head .path { flex: 1 1 auto; min-width: 0; font: 12.5px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.viewer-head .path .dir { color: var(--text-faint); }
+.viewer-head .where { font: 11px var(--mono); color: var(--text-faint); white-space: nowrap; }
+.viewer-body { flex: 1 1 auto; overflow: auto; padding: var(--s3); }
+.viewer-body .diff { border: 0; background: transparent; }
+.viewer-body .diff div { min-width: max-content; }
+.viewer-nav { display: inline-flex; gap: 2px; }
+
+/* Lines gained and lost, wherever a file is listed. */
+.stat-add { color: var(--green); font: 11px var(--mono); }
+.stat-del { color: var(--red); font: 11px var(--mono); }
+.stat-bin { color: var(--text-faint); font: 11px var(--mono); }
+
+/* A file list: the same rows in a commit, in a change, and in the working tree. */
+.file-list { display: flex; flex-direction: column; }
+.file-list .file-row[aria-current="true"] { background: var(--bg-active); border-left-color: var(--accent); }
+.file-row .stats { display: inline-flex; gap: 6px; flex: 0 0 auto; }
+.file-row .code.A { background: rgba(87, 207, 148, .18); color: var(--green); }
+.file-row .code.D { background: rgba(244, 105, 108, .18); color: var(--red); }
+.file-row .code.M { background: rgba(232, 174, 51, .18); color: var(--amber); }
+.file-row .code.R, .file-row .code.C { background: rgba(189, 142, 230, .18); color: var(--purple); }
+
+.sha-copy {
+  padding: 1px 6px;
+  background: rgba(255, 255, 255, .06); border: 0; border-radius: 4px;
+  color: var(--text-dim); font: 11px var(--mono); cursor: pointer;
+}
+.sha-copy:hover { background: var(--bg-active); color: var(--text); }
+.detail-section h3 .totals { float: right; display: inline-flex; gap: 6px; }
+.message-body { white-space: pre-wrap; font-size: 12.5px; }
+.files-section { padding-left: 0; padding-right: 0; }
+.files-section h3 { padding: 0 var(--s4); }
+
+/* A path gives up its directory before its file name: the name is what identifies the row. */
+.file-row .path, .viewer-head .path { display: flex; align-items: baseline; min-width: 0; }
+.file-row .path .dir, .viewer-head .path .dir {
+  flex: 0 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  direction: rtl; text-align: left;
+}
+.file-row .path .name, .viewer-head .path .name { flex: 0 0 auto; color: var(--text); font-weight: 500; }
+.file-row .path .name { color: var(--text-dim); }
+.file-row[aria-current="true"] .path .name { color: var(--text); }

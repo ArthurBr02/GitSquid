@@ -50,7 +50,7 @@
     aria-label="Resize the sidebar" tabindex="0"></div>
 
   <section class="graph-pane" id="graph" aria-label="Change and commit graph" tabindex="-1">
-    <div class="pane-head">
+    <div class="pane-head" id="pane-head">
       <button type="button" class="filter-chip" id="btn-filter" aria-haspopup="menu">
         <span id="filter-label">Everything</span>
         <span class="chevron" aria-hidden="true">▾</span>
@@ -66,6 +66,11 @@
       <ol class="rows" id="rows" role="listbox" aria-label="Changes and commits" tabindex="0"></ol>
     </div>
     <p class="empty-state" id="graph-empty" hidden></p>
+
+    <div class="viewer" id="viewer" hidden>
+      <div class="viewer-head" id="viewer-head"></div>
+      <div class="viewer-body" id="viewer-body" tabindex="0"></div>
+    </div>
   </section>
 
   <div class="resizer" id="resize-right" role="separator" aria-orientation="vertical"
