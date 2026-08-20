@@ -128,6 +128,57 @@ def _delete_file_rows(conn: sqlite3.Connection, file_id: int) -> None:
     conn.execute("DELETE FROM chunks WHERE file_id=?", (file_id,))
 
 
+def _readable(path: Path) -> bytes | None:
+    """The bytes of a file worth indexing, or None when it is one to skip."""
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return None
+    return None if _is_probably_binary(raw) else raw
+
+
+def _upsert_file(conn: sqlite3.Connection, rel: str, path: Path, raw: bytes, digest: str) -> int:
+    row = conn.execute("SELECT id FROM files WHERE path=?", (rel,)).fetchone()
+    if row:
+        _delete_file_rows(conn, row["id"])
+        conn.execute(
+            "UPDATE files SET sha256=?, size_bytes=?, language=?, indexed_at=? WHERE id=?",
+            (digest, len(raw), language_for(path), utcnow(), row["id"]),
+        )
+        return int(row["id"])
+    cur = conn.execute(
+        "INSERT INTO files (path, sha256, size_bytes, language, chunked, indexed_at)"
+        " VALUES (?,?,?,?,1,?)",
+        (rel, digest, len(raw), language_for(path), utcnow()),
+    )
+    return int(cur.lastrowid)
+
+
+def _write_chunks(conn: sqlite3.Connection, file_id: int, rel: str, lines: list[str]) -> int:
+    written = 0
+    for ordinal, (start, end, content) in enumerate(chunk_lines(lines)):
+        cur = conn.execute(
+            "INSERT INTO chunks (file_id, ordinal, start_line, end_line, content) VALUES (?,?,?,?,?)",
+            (file_id, ordinal, start, end, content),
+        )
+        conn.execute(
+            "INSERT INTO chunks_fts (path, content, chunk_id) VALUES (?,?,?)",
+            (rel, content, int(cur.lastrowid)),
+        )
+        written += 1
+    return written
+
+
+def _prune_missing(conn: sqlite3.Connection, seen: set[str]) -> int:
+    removed = 0
+    for row in conn.execute("SELECT id, path FROM files").fetchall():
+        if row["path"] not in seen:
+            _delete_file_rows(conn, row["id"])
+            conn.execute("DELETE FROM files WHERE id=?", (row["id"],))
+            removed += 1
+    return removed
+
+
 def index_repo(
     conn: sqlite3.Connection, repo: Path, *, max_file_bytes: int, force: bool = False
 ) -> IndexStats:
@@ -135,68 +186,29 @@ def index_repo(
     seen: set[str] = set()
 
     for path, indexable, _reason in walk_repo(repo, max_file_bytes=max_file_bytes):
-        rel = path.relative_to(repo).as_posix()
-        if not indexable:
-            skipped += 1
-            continue
-        try:
-            raw = path.read_bytes()
-        except OSError:
-            skipped += 1
-            continue
-        if _is_probably_binary(raw):
+        raw = _readable(path) if indexable else None
+        if raw is None:
             skipped += 1
             continue
 
+        rel = path.relative_to(repo).as_posix()
         seen.add(rel)
         digest = hashlib.sha256(raw).hexdigest()
-        row = conn.execute("SELECT id, sha256 FROM files WHERE path=?", (rel,)).fetchone()
-        if row and row["sha256"] == digest and not force:
+        known = conn.execute("SELECT sha256 FROM files WHERE path=?", (rel,)).fetchone()
+        if known and known["sha256"] == digest and not force:
             unchanged += 1
             continue
 
+        file_id = _upsert_file(conn, rel, path, raw, digest)
         text = raw.decode("utf-8", errors="replace")
-        lines = text.splitlines(keepends=True)
-        if row:
-            file_id = row["id"]
-            _delete_file_rows(conn, file_id)
-            conn.execute(
-                "UPDATE files SET sha256=?, size_bytes=?, language=?, indexed_at=? WHERE id=?",
-                (digest, len(raw), language_for(path), utcnow(), file_id),
-            )
-        else:
-            cur = conn.execute(
-                "INSERT INTO files (path, sha256, size_bytes, language, chunked, indexed_at)"
-                " VALUES (?,?,?,?,1,?)",
-                (rel, digest, len(raw), language_for(path), utcnow()),
-            )
-            file_id = int(cur.lastrowid)
-
-        for ordinal, (start, end, content) in enumerate(chunk_lines(lines)):
-            cur = conn.execute(
-                "INSERT INTO chunks (file_id, ordinal, start_line, end_line, content)"
-                " VALUES (?,?,?,?,?)",
-                (file_id, ordinal, start, end, content),
-            )
-            conn.execute(
-                "INSERT INTO chunks_fts (path, content, chunk_id) VALUES (?,?,?)",
-                (rel, content, int(cur.lastrowid)),
-            )
-            chunk_count += 1
+        chunk_count += _write_chunks(conn, file_id, rel, text.splitlines(keepends=True))
         indexed += 1
-
-    removed = 0
-    for row in conn.execute("SELECT id, path FROM files").fetchall():
-        if row["path"] not in seen:
-            _delete_file_rows(conn, row["id"])
-            conn.execute("DELETE FROM files WHERE id=?", (row["id"],))
-            removed += 1
 
     return IndexStats(
         files_indexed=indexed,
         files_unchanged=unchanged,
         files_skipped=skipped,
-        files_removed=removed,
+        files_removed=_prune_missing(conn, seen),
         chunks=chunk_count,
     )
 

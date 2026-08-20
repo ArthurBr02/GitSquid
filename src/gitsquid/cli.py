@@ -481,24 +481,30 @@ def run_command(
         if skip_tests:
             ui.warn(f"Tests skipped. Verify later with `gitsquid test {change.id}`.")
             return
+        _verify_and_report(service, settings, change, revert_on_failure=revert_on_failure)
 
-        with ui.working(f"Running `{settings.test_command}`…"):
-            run = service.verify(change)
-        if run.passed:
-            ui.ok(f"Tests passed in {run.duration_ms}ms — change #{change.id} is verified.")
-            return
 
-        ui.fail(f"Tests exited {run.exit_code}.")
-        ui.panel("Output tail", run.output_tail or "(no output)")
-        if revert_on_failure:
-            try:
-                service.revert(change)
-                ui.ok(f"Change #{change.id} reversed automatically.")
-            except WorkflowError as exc:
-                ui.fail(str(exc))
-        else:
-            ui.info(f"The change is still applied. Undo with `gitsquid revert {change.id}`.")
+def _verify_and_report(
+    service: ChangeService, settings: Settings, change: Change, *, revert_on_failure: bool
+) -> None:
+    """Run the verification command and end the loop the way its result deserves."""
+    with ui.working(f"Running `{settings.test_command}`…"):
+        run = service.verify(change)
+    if run.passed:
+        ui.ok(f"Tests passed in {run.duration_ms}ms — change #{change.id} is verified.")
+        return
+
+    ui.fail(f"Tests exited {run.exit_code}.")
+    ui.panel("Output tail", run.output_tail or "(no output)")
+    if not revert_on_failure:
+        ui.info(f"The change is still applied. Undo with `gitsquid revert {change.id}`.")
         raise typer.Exit(EXIT_FAILURE)
+    try:
+        service.revert(change)
+        ui.ok(f"Change #{change.id} reversed automatically.")
+    except WorkflowError as exc:
+        ui.fail(str(exc))
+    raise typer.Exit(EXIT_FAILURE)
 
 
 def _resolve_ui_repo(repo: Path | None) -> Settings:
