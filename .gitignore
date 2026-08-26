@@ -19,3 +19,6 @@ desktop/src-tauri/target/
 desktop/src-tauri/gen/
 
 .DS_Store
+
+# Rust
+/target/
