@@ -8,9 +8,7 @@ desktop/src-tauri/gen/
 # Release artefacts
 dist/
 
-# Local state, never committed
+# Never commit one of these, whatever creates it
 .env
-.gitsquid/
-.gitia/
 
 .DS_Store
