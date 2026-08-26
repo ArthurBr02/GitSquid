@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-commit-detail"
+description = "Enables the commit_detail command without any pre-configured scope."
+commands.allow = ["commit_detail"]
+
+[[permission]]
+identifier = "deny-commit-detail"
+description = "Denies the commit_detail command without any pre-configured scope."
+commands.deny = ["commit_detail"]

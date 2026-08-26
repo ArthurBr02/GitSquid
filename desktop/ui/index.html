@@ -2,69 +2,182 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GitSquid</title>
-<style>
-  :root { color-scheme: dark; }
-  html, body { height: 100%; margin: 0; }
-  body {
-    display: grid; place-items: center;
-    background: #14161c; color: #e6eaf2;
-    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
-    -webkit-user-select: none; user-select: none;
-  }
-  .boot { text-align: center; max-width: 560px; padding: 0 32px; }
-  .mark {
-    width: 80px; height: 80px; margin: 0 auto 22px;
-  }
-  .mark img { width: 100%; height: 100%; object-fit: contain; }
-  h1 { margin: 0 0 6px; font-size: 19px; letter-spacing: .3px; }
-  p { margin: 0; color: #98a1b3; }
-  .state { margin-top: 20px; display: flex; align-items: center; gap: 9px; justify-content: center; color: #98a1b3; }
-  .spinner {
-    width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.18);
-    border-top-color: #4f9dff; border-radius: 50%; animation: spin .7s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .error {
-    display: none; margin-top: 22px; text-align: left;
-    background: rgba(255,107,107,.09); border: 1px solid rgba(255,107,107,.34);
-    border-radius: 9px; padding: 14px 16px; color: #ffa8a8;
-  }
-  .error h2 { margin: 0 0 7px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
-  .error pre {
-    margin: 10px 0 0; white-space: pre-wrap; user-select: text;
-    font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #e8ecf4;
-  }
-  body.failed .state { display: none; }
-  body.failed .error { display: block; }
-  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: .001ms; } }
-</style>
+<link rel="stylesheet" href="/assets/primeicons/primeicons.css">
+<link rel="stylesheet" href="/assets/app.css">
 </head>
 <body>
-  <div class="boot">
-    <div class="mark" aria-hidden="true"><img src="logo.png" alt="GitSquid logo"></div>
-    <h1>GitSquid</h1>
-    <p>Repository-local Git client assistant</p>
-    <div class="state" role="status" aria-live="polite">
-      <span class="spinner" aria-hidden="true"></span>
-      <span id="message">Starting the local engine…</span>
-    </div>
-    <div class="error" role="alert">
-      <h2>The engine did not start</h2>
-      <p id="detail"></p>
-      <pre id="output"></pre>
-    </div>
+<a class="skip" href="#graph">Skip to the graph</a>
+
+<header class="topbar">
+  <div class="brand">
+    <img class="mark" src="/assets/logo.png" alt="GitSquid logo" aria-hidden="true">
+    <span class="brand-name">GitSquid</span>
+  </div>
+  <button type="button" class="repo-chip" id="repo-chip" aria-haspopup="dialog"
+    title="Switch repository (O)">
+    <span class="repo-name" id="repo-name">—</span>
+    <span class="branch" id="repo-branch"></span>
+    <span data-icon="chevron-down" data-size="12"></span>
+  </button>
+
+  <div class="toolbar" role="toolbar" aria-label="Repository actions">
+    <span class="btn-group">
+      <button type="button" class="btn ghost" id="btn-fetch" title="Fetch from the remote">Fetch</button>
+      <button type="button" class="btn ghost" id="btn-pull" title="Pull, fast-forward only">
+        Pull <span class="badge" id="badge-behind" hidden></span>
+      </button>
+      <button type="button" class="btn ghost" id="btn-push" title="Push — right click for a force push">
+        Push <span class="badge" id="badge-ahead" hidden></span>
+      </button>
+    </span>
+    <button type="button" class="icon-btn" id="btn-more" aria-haspopup="menu"
+      aria-label="More actions" title="More actions"><span data-icon="dots"></span></button>
   </div>
 
-<script>
-  // Called from the Rust side while the backend boots.
-  window.gitsquidStatus = (payload) => {
-    if (payload.message) document.getElementById("message").textContent = payload.message;
-    if (!payload.error) return;
-    document.body.classList.add("failed");
-    document.getElementById("detail").textContent = payload.error;
-    document.getElementById("output").textContent = payload.output || "";
-  };
-</script>
+</header>
+
+<div class="op-bar" id="op-bar" role="alert" hidden></div>
+
+<main class="layout">
+  <nav class="sidebar" id="sidebar" aria-label="Repository contents"></nav>
+
+  <div class="resizer" id="resize-left" role="separator" aria-orientation="vertical"
+    aria-label="Resize the sidebar" tabindex="0"></div>
+
+  <section class="graph-pane" id="graph" aria-label="Change and commit graph" tabindex="-1">
+    <div class="pane-head" id="pane-head">
+      <button type="button" class="filter-chip" id="btn-filter" aria-haspopup="menu">
+        <span id="filter-label">Every branch</span>
+        <span data-icon="chevron-down" data-size="12"></span>
+      </button>
+      <label class="search-label" for="search">
+        <span class="visually-hidden">Search the graph</span>
+        <input type="search" id="search" placeholder="Filter these rows — Enter searches the whole history  ( / )" autocomplete="off">
+      </label>
+      <button type="button" class="btn tiny ghost" id="btn-leave-search" hidden>Leave search</button>
+      <button type="button" class="filter-chip head-chip" id="btn-head" title="Go to where you are (H)">
+        <span data-icon="map-marker" data-size="12"></span>
+        <span id="head-label">HEAD</span>
+      </button>
+      <span class="pane-count" id="row-count"></span>
+    </div>
+    <div class="rows-wrap" id="rows-wrap">
+      <svg class="graph-canvas" id="graph-canvas" aria-hidden="true" focusable="false"></svg>
+      <ol class="rows" id="rows" role="listbox" aria-label="Changes and commits" tabindex="0"></ol>
+      <div class="rows-more" id="rows-more" hidden></div>
+    </div>
+    <p class="empty-state" id="graph-empty" hidden></p>
+
+    <div class="viewer" id="viewer" hidden>
+      <div class="viewer-head" id="viewer-head"></div>
+      <div class="viewer-body" id="viewer-body" tabindex="0"></div>
+    </div>
+  </section>
+
+  <div class="resizer" id="resize-right" role="separator" aria-orientation="vertical"
+    aria-label="Resize the detail panel" tabindex="0"></div>
+
+  <aside class="detail" id="detail" aria-label="Selected item" tabindex="-1">
+    <div class="empty-state">
+      <h2>Nothing selected</h2>
+      <p>Pick a row in the graph. <kbd>↑</kbd> <kbd>↓</kbd> moves, and a right click opens what
+      you can do with it.</p>
+    </div>
+  </aside>
+</main>
+
+<footer class="statusbar">
+  <span id="status-text" role="status" aria-live="polite">Ready.</span>
+  <span class="spacer"></span>
+  <span class="db-path" id="db-path"></span>
+</footer>
+
+<dialog class="modal small" id="help-modal" aria-labelledby="help-title">
+  <h2 id="help-title">Keyboard</h2>
+  <p class="hint">Every action also sits on a right click — on a commit, a branch, a tag, a stash
+  or a file.</p>
+  <dl class="shortcuts">
+    <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Move through the graph</dd>
+    <dt><kbd>Enter</kbd></dt><dd>Focus the detail panel</dd>
+    <dt><kbd>Shift</kbd>+<kbd>F10</kbd></dt><dd>Menu of the selected row</dd>
+    <dt><kbd>/</kbd></dt><dd>Search</dd>
+    <dt><kbd>W</kbd></dt><dd>Uncommitted changes</dd>
+    <dt><kbd>B</kbd> <kbd>T</kbd> <kbd>S</kbd></dt><dd>Branch · tag · stash</dd>
+    <dt><kbd>R</kbd></dt><dd>Refresh</dd>
+    <dt><kbd>H</kbd></dt><dd>Go to where you are</dd>
+    <dt>Double click</dt><dd>Move HEAD to a commit</dd>
+    <dt><kbd>O</kbd></dt><dd>Repositories</dd>
+    <dt><kbd>?</kbd></dt><dd>This dialog</dd>
+  </dl>
+  <menu class="modal-actions">
+    <button type="button" class="btn ghost" id="help-close">Close</button>
+  </menu>
+</dialog>
+
+<dialog class="modal" id="repos-modal" aria-labelledby="repos-title">
+  <h2 id="repos-title">Repositories</h2>
+  <p class="hint">Every repository keeps its own database, its own index, and its own history.</p>
+  <ul class="repo-list" id="repo-list"></ul>
+  <form id="repo-form">
+    <label class="field">
+      <span class="field-label">Add a repository <em id="repo-path-hint">absolute path</em></span>
+      <span class="field-row">
+        <input type="text" id="repo-path" required maxlength="4000"
+          placeholder="/Users/arthur/Projets/mon-projet" autocomplete="off" spellcheck="false">
+        <button type="button" class="btn ghost" id="btn-browse" hidden>Browse…</button>
+      </span>
+    </label>
+    <p class="form-error" id="repo-error" role="alert" hidden></p>
+    <menu class="modal-actions">
+      <button type="button" class="btn ghost" id="repos-close">Close</button>
+      <button type="submit" class="btn primary">Add and open</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog class="modal small" id="choose-modal" aria-labelledby="choose-title">
+  <h2 id="choose-title">…</h2>
+  <p class="hint" id="choose-hint"></p>
+  <div class="choices" id="choose-list"></div>
+  <menu class="modal-actions">
+    <button type="button" class="btn ghost" id="choose-cancel">Cancel</button>
+  </menu>
+</dialog>
+
+<dialog class="modal small" id="ask-modal" aria-labelledby="ask-title">
+  <form method="dialog" id="ask-form">
+    <h2 id="ask-title">…</h2>
+    <p class="hint" id="ask-hint"></p>
+    <label class="field">
+      <span class="field-label" id="ask-label">Value</span>
+      <input type="text" id="ask-value" maxlength="200" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="field" id="ask-extra-field" hidden>
+      <span class="field-label" id="ask-extra-label">Detail</span>
+      <textarea id="ask-extra" rows="3" maxlength="1000"></textarea>
+    </label>
+    <p class="form-error" id="ask-error" role="alert" hidden></p>
+    <menu class="modal-actions">
+      <button type="button" class="btn ghost" id="ask-cancel">Cancel</button>
+      <button type="submit" class="btn primary" id="ask-submit">OK</button>
+    </menu>
+  </form>
+</dialog>
+
+<div class="toasts" id="toasts" aria-live="assertive" aria-atomic="false"></div>
+
+<script src="/assets/graph.js"></script>
+<script src="/assets/menu.js"></script>
+<script src="/assets/base.js"></script>
+<script src="/assets/menus.js"></script>
+<script src="/assets/viewer.js"></script>
+<script src="/assets/diff.js"></script>
+<script src="/assets/sidebar.js"></script>
+<script src="/assets/panels.js"></script>
+<script src="/assets/actions.js"></script>
+<script src="/assets/repos.js"></script>
+<script src="/assets/app.js"></script>
 </body>
 </html>

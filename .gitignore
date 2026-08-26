@@ -1,21 +1,14 @@
-.venv/
-__pycache__/
-*.pyc
-.pytest_cache/
-.coverage
-htmlcov/
-dist/
-build/
-*.egg-info/
-.env
-.gitsquid/
-.gitia/
-
-.venv-prod/
+# Rust
+/target/
 
 # Tauri desktop shell
 desktop/node_modules/
-desktop/src-tauri/target/
 desktop/src-tauri/gen/
+
+# Release artefacts
+dist/
+
+# Never commit one of these, whatever creates it
+.env
 
 .DS_Store

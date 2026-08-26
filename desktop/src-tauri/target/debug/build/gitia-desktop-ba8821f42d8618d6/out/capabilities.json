@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"The shell only opens a window and a native folder picker.","local":true,"windows":["main"],"permissions":["core:default","dialog:default"]}}

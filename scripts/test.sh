@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# Run the full test suite.
+# The whole suite: the Rust engine, then the page's own JavaScript.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-[ -d .venv ] || ./scripts/install.sh
-exec .venv/bin/python -m pytest "$@"
+echo "[info] engine"
+cargo test --workspace "$@"
+
+echo "[info] page"
+npm --prefix desktop test
+
+echo "[ok] everything passed."
