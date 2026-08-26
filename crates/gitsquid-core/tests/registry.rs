@@ -153,3 +153,37 @@ fn adding_a_repository_writes_the_new_file_not_the_legacy_one() {
     assert!(registry.path().exists());
     assert!(!shop.path().join("config/gitia/repos.json").exists());
 }
+
+// ------------------------------------------------------------------ which one reopens
+
+#[test]
+fn nothing_reopens_when_nothing_was_ever_opened() {
+    let shop = Workshop::new();
+    assert_eq!(shop.registry().most_recent_existing(), None);
+}
+
+#[test]
+fn the_last_one_opened_reopens() {
+    let shop = Workshop::new();
+    let first = shop.repo("premier");
+    let last = shop.repo("dernier");
+    let registry = shop.registry();
+    registry.add(&first).unwrap();
+    registry.add(&last).unwrap();
+
+    assert_eq!(registry.most_recent_existing(), Some(last));
+}
+
+#[test]
+fn a_repository_that_moved_away_is_skipped() {
+    let shop = Workshop::new();
+    let kept = shop.repo("garde");
+    let gone = shop.repo("disparu");
+    let registry = shop.registry();
+    registry.add(&kept).unwrap();
+    registry.add(&gone).unwrap();
+
+    std::fs::rename(gone.join(".git"), gone.join(".git-gone")).unwrap();
+
+    assert_eq!(registry.most_recent_existing(), Some(kept), "the newest one is no longer a repository");
+}

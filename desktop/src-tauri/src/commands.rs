@@ -27,10 +27,7 @@ impl Session {
     pub fn new() -> Self {
         let registry = Registry::from_env();
         let active = registry
-            .known()
-            .into_iter()
-            .find(|entry| entry.exists)
-            .map(|entry| entry.path)
+            .most_recent_existing()
             .or_else(|| std::env::current_dir().ok().and_then(|cwd| repo::find_repo_root(&cwd).ok()));
         Self { active: RwLock::new(active), registry }
     }

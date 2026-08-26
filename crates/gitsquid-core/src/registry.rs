@@ -107,6 +107,12 @@ impl Registry {
         Ok(root)
     }
 
+    /// The repository to reopen: the last one you were on that is still where you left it.
+    /// A repository that moved away is skipped rather than reported as broken.
+    pub fn most_recent_existing(&self) -> Option<PathBuf> {
+        self.known().into_iter().find(|entry| entry.exists).map(|entry| entry.path)
+    }
+
     /// Forget a repository. Nothing on disk is touched.
     pub fn remove(&self, path: &Path) -> bool {
         let target = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
