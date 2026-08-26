@@ -1,39 +1,39 @@
 # GitSquid
 
 A Git client for one repository at a time. It draws the graph, stages by file, by hunk or by line,
-commits, branches, merges, rebases, blames, and searches the whole history — in a page served on
-your own machine, with nothing behind it but `git`.
+commits, branches, merges, rebases, blames, and searches the whole history — in one native window,
+with nothing behind it but `git`.
 
 No account, no server, no telemetry, no database of its own.
-
-```bash
-gitsquid ui          # the interface, on http://127.0.0.1:8756
-gitsquid ui --repo . # this folder rather than the last one you opened
-gitsquid doctor      # which repository would open, and what this is made of
-```
 
 ---
 
 ## Setup
 
-Requires **Python 3.12+** and **git** on `PATH`.
+Requires **git** on `PATH`. Nothing else at runtime: libgit2 is compiled into the binary.
+
+Download the bundle for your platform, or build it yourself:
 
 ```bash
-./scripts/install.sh          # creates .venv and installs gitsquid in editable mode
-source .venv/bin/activate
-gitsquid ui
+./scripts/setup.sh            # check the toolchain, install what building needs
+./scripts/dev.sh              # run the app from source
 ```
+
+Building needs **Rust** and **Node**, plus the platform's webview toolchain — Xcode command line
+tools on macOS, `libwebkit2gtk-4.1-dev` and friends on Linux, the MSVC build tools on Windows.
+`setup.sh` checks for them and installs the Linux ones on apt systems.
 
 ### Scripts
 
 | Script | What it does |
 | --- | --- |
-| `./scripts/install.sh` | Create `.venv`, install runtime + dev dependencies. |
-| `./scripts/dev.sh` | Editable install plus a `gitsquid doctor` smoke check. |
-| `./scripts/test.sh` | Run the whole test suite (`pytest`). |
-| `python -m playwright install webkit` | Once, to let the browser smoke test actually run a browser; it skips itself otherwise. |
-| `./scripts/build.sh` | Build the wheel and sdist into `dist/`. |
-| `./scripts/run.sh` | Production-style local run: build, install the wheel into `.venv-prod`, and launch `gitsquid ui` from it. |
+| `./scripts/setup.sh` | Check the toolchain, install the platform dependencies and the npm ones. |
+| `./scripts/dev.sh` | Run the app from source, rebuilding on change. |
+| `./scripts/test.sh` | The whole suite: the Rust engine, then the page's own JavaScript. |
+| `./scripts/release.sh <macos\|linux\|windows>` | Build an installable bundle and collect it in `dist/`. |
+
+Tauri does not cross-compile a desktop bundle, so each platform is built on itself — that is what
+the release workflow's three runners are for.
 
 ---
 
@@ -43,8 +43,8 @@ gitsquid ui
 
 ![One file of that commit, read in the middle pane](docs/diff.png)
 
-`gitsquid ui` serves a single page at `http://127.0.0.1:8756/`. No account, no login, no token —
-it is a local tool for one person. Three columns, one job each:
+One window, one repository. No account, no login, no token — it is a local tool for one person.
+Three columns, one job each:
 
 - **Left — what the repository holds.** Collapsible sections, remembered between sessions: the
   working tree, local branches with how far each has drifted from its upstream, remote branches,
@@ -113,54 +113,54 @@ Keyboard: <kbd>W</kbd> uncommitted changes · <kbd>B</kbd> branch ·
 <kbd>Esc</kbd> leave a field, close a menu, or leave a file · <kbd>?</kbd> the full list. Nothing
 needs a mouse: every context menu is reachable from the keyboard and walks with the arrow keys.
 
-The server binds `127.0.0.1` only and refuses any request whose `Host` header is not loopback,
-which blocks DNS rebinding from a web page you might have open. Nothing outside the machine can
-reach it, so there is no credential to manage. The page declares a strict CSP, loads no remote
-asset, and the server never logs request contents. `git` runs with `GIT_TERMINAL_PROMPT=0`, so a
-remote operation fails with a readable message instead of hanging on a password prompt.
+Nothing listens on a socket: the page reaches the engine through the window's own IPC, so there is
+no port to expose and no credential to manage. It declares a strict CSP and loads no remote asset.
+`git` runs with `GIT_TERMINAL_PROMPT=0`, so a remote operation fails with a readable message
+instead of hanging on a password prompt.
 
 ---
 
-## The desktop app
+## How it is built
 
-`desktop/` is a Tauri shell: a native window that starts `gitsquid ui` on a free loopback port and
-shows it. It needs the `gitsquid` command on the machine — it looks at `$GITSQUID_BIN`, then the
-project's `.venv/bin`, then `PATH`.
+One Rust workspace, one binary.
 
-```bash
-cd desktop && npm install
-npm run dev                    # the window, against the local engine
-npm run build:macos            # .app and .dmg
-npm run build:macos:universal  # the same, as a universal binary
-npm run build:windows          # .msi and .exe
-npm run build:linux            # .deb and .AppImage
-```
+| Piece | What it is |
+| --- | --- |
+| `crates/gitsquid-core` | The engine: everything GitSquid knows how to do to a repository. |
+| `desktop/src-tauri` | The native window, and the commands the page calls. |
+| `desktop/ui` | The page itself — plain HTML, CSS and JavaScript, no framework, no build step. |
 
-Each bundle is built by the operating system it targets — Tauri does not cross-compile a desktop
-bundle, and running the wrong one tells you so immediately instead of failing inside a Rust build.
+The engine reads and writes through **libgit2**, except where that would be wrong. Anything that
+creates a commit or an annotated tag runs `git` instead: libgit2 refuses to build a signature from
+an identity with an empty email, and it runs none of your hooks. Blame, rebase and every network
+operation shell out too — respectively because libgit2 resolves authors through a mailmap that hits
+the same signature check, because a rebase must stay finishable from a terminal, and because your
+credential helpers and `~/.ssh/config` belong to `git`.
+
+The page talks to the engine through Tauri's IPC. There is no server, no port, and no HTTP.
 
 ---
 
 ## Architecture
 
-`src/gitsquid/`, one responsibility per module:
+`crates/gitsquid-core/src/`, one responsibility per module:
 
 | Module | Responsibility |
 | --- | --- |
-| `config.py` | Find the root of the repository you are in. |
-| `gitcmd.py` | The one place git is invoked: process, timeouts, credential-prompt refusal, and the validation of every ref, path and commit id that reaches a command line. |
-| `gitlog.py` | Reads: commits, parents, branches, remote branches, tags, status, file history, blame, and the operation git stopped in the middle of. |
-| `worktree.py` | The working tree and the index: stage, unstage, discard, ignore, per-hunk apply, commit, amend, branch, merge, stash, and the remote sync. |
-| `refs.py` | Tags, remote branches, remotes, and branch renaming. |
-| `history.py` | Check out a commit, branch from it, cherry-pick, revert, reset, rebase, restore one file — and abort, skip or continue what conflicts. |
-| `clone.py` | Getting a repository in the first place. |
-| `diffs.py` | Unified-diff parsing and path safety, for the patches the interface builds. |
-| `registry.py` | The list of known repositories, shared by every session. |
-| `safety.py` | Path validation and credential-shaped file detection. |
-| `phrasing.py` | How the product counts things, so nothing says "1 file(s)". |
-| `ui.py` | Terminal states for the two commands the CLI has. |
-| `cli.py` | Typer commands: serve the interface, report the setup. |
-| `web/` | Loopback HTTP server and JSON API; `assets/primeicons/` is the icon font, vendored (MIT) so the page fetches nothing from the network. The page is small scripts, one job each: `base` (elements, text, the API), `menu` (the context-menu component), `menus` (what each row offers), `sidebar`, `viewer` (the middle pane when it shows a file), `diff` (how a patch is drawn and picked apart), `panels` (the right column), `actions`, `repos`, and `app` (state, rows, selection, boot). `graph.js` lays out and paints the lanes. |
+| `repo.rs` | Find the root of the repository you are in. |
+| `git_cli.rs` | The one place `git` is invoked: process, timeouts, credential-prompt refusal, and the readable translation of an auth failure. |
+| `validate.rs` | Every ref, path and commit id is checked here before it can reach a command line. |
+| `gitlog.rs` | Reads: commits, parents, branches, remote branches, tags, status, file history, blame, and the operation git stopped in the middle of. |
+| `worktree.rs` | The working tree and the index: stage, unstage, discard, ignore, per-hunk apply, commit, amend, branch, merge, stash, and the remote sync. |
+| `refs.rs` | Tags, remote branches, remotes, and branch renaming. |
+| `history.rs` | Check out a commit, branch from it, cherry-pick, revert, reset, rebase, restore one file — and abort, skip or continue what conflicts. |
+| `clone.rs` | Getting a repository in the first place. |
+| `diffs.rs` | Unified-diff parsing, path safety, and the patch inverter that unstaging a hunk needs — libgit2 has no `--reverse`. |
+| `registry.rs` | The list of known repositories, shared by every session. |
+| `safety.rs` | Path validation and credential-shaped file detection. |
+| `phrasing.rs` | How the product counts things, so nothing says "1 file(s)". |
+| `time.rs` | Dates in the shapes git prints them, without a datetime dependency. |
+| `desktop/ui/assets/` | The page: small scripts, one job each — `base` (elements, text, the IPC), `menu` (the context-menu component), `menus` (what each row offers), `sidebar`, `viewer` (the middle pane when it shows a file), `diff` (how a patch is drawn and picked apart), `panels` (the right column), `actions`, `repos`, and `app` (state, rows, selection, boot). `graph.js` lays out and paints the lanes. `primeicons/` is the icon font, vendored (MIT) so the page fetches nothing from the network. |
 
 ---
 
@@ -169,7 +169,7 @@ bundle, and running the wrong one tells you so immediately instead of failing in
 | What | Where |
 | --- | --- |
 | The list of repositories you have opened | `~/.config/gitsquid/repos.json` — paths only, override with `GITSQUID_CONFIG_DIR` |
-| How you like to read a diff, the theme, the pane widths | Your browser's local storage |
+| How you like to read a diff, the theme, the pane widths | The window's own local storage |
 | Everything else | Your repository, in git, where it was already |
 
 GitSquid writes nothing else. There is no database, no index, no cache to clear: uninstalling it
@@ -186,8 +186,7 @@ leaves your repositories exactly as git left them.
   is absolute, contains `..`, or points into `.git/`; every branch, tag and commit id is validated
   the same way, so nothing from the interface is ever read as a git option. Anything destructive —
   discard, hard reset, force push, force delete, dropping a stash — asks first.
-- **Listen** on `127.0.0.1` only while `gitsquid ui` is running, and only for requests whose `Host`
-  header is a loopback name.
+- **Listen** on nothing. There is no socket, no port, and no server.
 - **Network** only where you point git: fetch, pull, push and clone talk to your remotes and to
   nothing else. The page itself loads no remote asset.
 
@@ -197,8 +196,6 @@ No analytics, no telemetry, no third-party accounts, no background process.
 
 ## Accessibility
 
-- Every terminal state prints a text token (`[ok]`, `[fail]`, `[warn]`, `[info]`) as well as a
-  colour, so nothing depends on colour perception. `NO_COLOR=1` disables colour.
 - In the page, every action is reachable from the keyboard: the graph walks with the arrow keys,
   <kbd>Shift</kbd>+<kbd>F10</kbd> opens the menu of the selected row, and every menu walks with the
   arrow keys. Nothing needs a mouse.
@@ -209,9 +206,9 @@ No analytics, no telemetry, no third-party accounts, no background process.
 
 ## Security
 
-- The server binds `127.0.0.1` only and refuses any request whose `Host` header is not loopback,
-  which blocks DNS rebinding from a web page you might have open. The page declares a strict CSP,
-  loads no remote asset, and the server never logs request contents.
+- Nothing listens on a socket. The page reaches the engine through the window's own IPC, and every
+  command it may call is named in the app's capability — one missing from that list is refused, not
+  quietly allowed. The page declares a strict CSP and loads no remote asset.
 - `git` runs with `GIT_TERMINAL_PROMPT=0`, so a remote operation fails with a readable message
   instead of hanging on a password prompt. Credentials stay git's business: GitSquid never asks for
   one, never stores one.
