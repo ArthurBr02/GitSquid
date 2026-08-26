@@ -48,18 +48,8 @@ impl Registry {
         self.dir.join("repos.json")
     }
 
-    /// The list written before the rename is read until the new one exists.
-    fn source(&self) -> PathBuf {
-        let current = self.path();
-        let legacy = self.dir.parent().map(|parent| parent.join("gitia").join("repos.json"));
-        match legacy {
-            Some(legacy) if !current.exists() && legacy.exists() => legacy,
-            _ => current,
-        }
-    }
-
     fn read(&self) -> Vec<PathBuf> {
-        let Ok(text) = std::fs::read_to_string(self.source()) else {
+        let Ok(text) = std::fs::read_to_string(self.path()) else {
             return Vec::new();
         };
         let Ok(payload) = serde_json::from_str::<serde_json::Value>(&text) else {
@@ -127,7 +117,7 @@ impl Registry {
 }
 
 fn base_dir() -> PathBuf {
-    for name in ["GITSQUID_CONFIG_DIR", "GITIA_CONFIG_DIR", "XDG_CONFIG_HOME"] {
+    for name in ["GITSQUID_CONFIG_DIR", "XDG_CONFIG_HOME"] {
         if let Ok(value) = std::env::var(name) {
             if !value.trim().is_empty() {
                 return PathBuf::from(value);

@@ -130,28 +130,12 @@ fn the_list_is_capped() {
 }
 
 #[test]
-fn the_list_written_before_the_rename_is_read() {
-    let shop = Workshop::new();
-    let older = shop.repo("ancien");
-    let registry = shop.registry();
-
-    let legacy = shop.path().join("config/gitia");
-    std::fs::create_dir_all(&legacy).unwrap();
-    let payload = serde_json::json!({ "version": 1, "repos": [older.to_string_lossy()] });
-    std::fs::write(legacy.join("repos.json"), payload.to_string()).unwrap();
-
-    let paths: Vec<_> = registry.known().into_iter().map(|entry| entry.path).collect();
-    assert_eq!(paths, [older]);
-}
-
-#[test]
-fn adding_a_repository_writes_the_new_file_not_the_legacy_one() {
+fn adding_a_repository_writes_the_list_to_disk() {
     let shop = Workshop::new();
     let registry = shop.registry();
     registry.add(&shop.repo("neuf")).unwrap();
 
     assert!(registry.path().exists());
-    assert!(!shop.path().join("config/gitia/repos.json").exists());
 }
 
 // ------------------------------------------------------------------ which one reopens
