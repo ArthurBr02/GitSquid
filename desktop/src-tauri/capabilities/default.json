@@ -1,10 +1,27 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The shell opens a window and a native folder picker. The page it hosts may ask for that picker, nothing else.",
-  "windows": ["main"],
-  "remote": {
-    "urls": ["http://127.0.0.1:*", "http://localhost:*"]
-  },
-  "permissions": ["core:default", "dialog:default", "allow-pick-repository"]
+  "description": "The shell opens a window over the engine it links against, plus a native folder picker.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "allow-pick-repository",
+    "allow-state",
+    "allow-graph",
+    "allow-worktree-view",
+    "allow-repos",
+    "allow-search",
+    "allow-file-history",
+    "allow-blame",
+    "allow-file-diff",
+    "allow-commit-detail",
+    "allow-commit-patch",
+    "allow-open-repo",
+    "allow-clone-repo",
+    "allow-forget-repo",
+    "allow-worktree-action"
+  ]
 }

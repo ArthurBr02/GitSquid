@@ -5,6 +5,7 @@
   "description": "Native desktop shell for GitSquid.",
   "scripts": {
     "dev": "tauri dev",
+    "test": "node --test tests/*.test.mjs",
     "build": "tauri build",
     "build:macos": "node scripts/build.mjs macos",
     "build:macos:universal": "node scripts/build.mjs macos --universal",

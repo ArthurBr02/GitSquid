@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-repos"
+description = "Enables the repos command without any pre-configured scope."
+commands.allow = ["repos"]
+
+[[permission]]
+identifier = "deny-repos"
+description = "Denies the repos command without any pre-configured scope."
+commands.deny = ["repos"]

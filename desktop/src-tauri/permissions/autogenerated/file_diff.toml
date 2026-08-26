@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-file-diff"
+description = "Enables the file_diff command without any pre-configured scope."
+commands.allow = ["file_diff"]
+
+[[permission]]
+identifier = "deny-file-diff"
+description = "Denies the file_diff command without any pre-configured scope."
+commands.deny = ["file_diff"]

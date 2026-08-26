@@ -1,17 +1,13 @@
-// gitsquid desktop shell: starts the local engine, then shows it in a native window.
+// gitsquid desktop shell: one window over the engine it links against.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod engine;
-
-use std::sync::Mutex;
+mod commands;
 
 use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 
-use engine::Engine;
-
-pub struct Backend(pub Mutex<Engine>);
+use commands::Session;
 
 /// Ask for a folder without ever blocking the main thread: the dialog needs that thread to
 /// run, so waiting on it there freezes the app (the spinning cursor). The picker is started
@@ -71,28 +67,16 @@ async fn open_repository(app: tauri::AppHandle) {
     let Some(path) = choose_folder(&app).await else {
         return;
     };
-    let port = {
-        let state = app.state::<Backend>();
-        let engine = state.0.lock().expect("engine lock");
-        engine.port()
-    };
-    let Some(port) = port else {
-        app.dialog().message("The engine is not running yet.").title("GitSquid").show(|_| {});
-        return;
-    };
-
-    match engine::open_repository(port, &path) {
-        Ok(message) => {
+    match commands::open_repo(app.state::<Session>(), path) {
+        Ok(answer) => {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.eval("location.reload()");
             }
+            let message = answer.get("message").and_then(|value| value.as_str()).unwrap_or("");
             let _ = app.emit("repository-opened", message);
         }
         Err(error) => {
-            app.dialog()
-                .message(error)
-                .title("Could not open that folder")
-                .show(|_| {});
+            app.dialog().message(error).title("Could not open that folder").show(|_| {});
         }
     }
 }
@@ -100,22 +84,34 @@ async fn open_repository(app: tauri::AppHandle) {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(Backend(Mutex::new(Engine::new())))
-        .invoke_handler(tauri::generate_handler![pick_repository])
+        .manage(Session::new())
+        .invoke_handler(tauri::generate_handler![
+            pick_repository,
+            commands::state,
+            commands::graph,
+            commands::worktree_view,
+            commands::repos,
+            commands::search,
+            commands::file_history,
+            commands::blame,
+            commands::file_diff,
+            commands::commit_detail,
+            commands::commit_patch,
+            commands::open_repo,
+            commands::clone_repo,
+            commands::forget_repo,
+            commands::worktree_action,
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
             app.set_menu(build_menu(&handle)?)?;
 
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("GitSquid")
                 .inner_size(1440.0, 920.0)
                 .min_inner_size(940.0, 620.0)
                 .center()
                 .build()?;
-
-            std::thread::spawn(move || {
-                engine::start(handle, window);
-            });
             Ok(())
         })
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -129,14 +125,6 @@ fn main() {
                 }
             }
             _ => {}
-        })
-        .on_window_event(|window, event| {
-            if matches!(event, WindowEvent::Destroyed) {
-                let app = window.app_handle().clone();
-                let state = app.state::<Backend>();
-                let mut engine = state.0.lock().expect("engine lock");
-                engine.stop();
-            }
         })
         .run(tauri::generate_context!())
         .expect("GitSquid desktop failed to start");

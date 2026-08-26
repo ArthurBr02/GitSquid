@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"The shell opens a window and a native folder picker. The page it hosts may ask for that picker, nothing else.","remote":{"urls":["http://127.0.0.1:*","http://localhost:*"]},"local":true,"windows":["main"],"permissions":["core:default","dialog:default","allow-pick-repository"]}}

@@ -16,3 +16,4 @@ pub mod validate;
 pub mod worktree;
 
 pub use error::{Error, Result};
+pub use git2;

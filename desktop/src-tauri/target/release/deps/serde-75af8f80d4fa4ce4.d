@@ -1,0 +1,14 @@
+/Users/arthur/Projets/gitclient-ia/desktop/src-tauri/target/release/deps/serde-75af8f80d4fa4ce4.d: /Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /Users/arthur/Projets/gitclient-ia/desktop/src-tauri/target/release/build/serde-7b8bd5c69fea8098/out/private.rs
+
+/Users/arthur/Projets/gitclient-ia/desktop/src-tauri/target/release/deps/libserde-75af8f80d4fa4ce4.rlib: /Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /Users/arthur/Projets/gitclient-ia/desktop/src-tauri/target/release/build/serde-7b8bd5c69fea8098/out/private.rs
+
+/Users/arthur/Projets/gitclient-ia/desktop/src-tauri/target/release/deps/libserde-75af8f80d4fa4ce4.rmeta: /Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /Users/arthur/Projets/gitclient-ia/desktop/src-tauri/target/release/build/serde-7b8bd5c69fea8098/out/private.rs
+
+/Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs:
+/Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs:
+/Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs:
+/Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs:
+/Users/arthur/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs:
+/Users/arthur/Projets/gitclient-ia/desktop/src-tauri/target/release/build/serde-7b8bd5c69fea8098/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/arthur/Projets/gitclient-ia/desktop/src-tauri/target/release/build/serde-7b8bd5c69fea8098/out
