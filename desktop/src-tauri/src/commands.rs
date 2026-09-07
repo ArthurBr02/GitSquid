@@ -242,9 +242,10 @@ pub fn open_repo(session: tauri::State<'_, Session>, path: String) -> Answer<Val
     Ok(json!({ "message": format!("Opened {name}."), "active": root.to_string_lossy() }))
 }
 
-/// Clone, register, and open — the three things you always want together.
+/// Clone, register, and open — the three things you always want together. `async` for the same
+/// reason as [`worktree_action`]: cloning is network work, and the main thread must stay free.
 #[tauri::command]
-pub fn clone_repo(
+pub async fn clone_repo(
     session: tauri::State<'_, Session>,
     url: String,
     parent: String,
@@ -296,8 +297,10 @@ pub struct ActionPayload {
     pub amend: bool,
 }
 
+/// `async` so Tauri runs it off the main thread: a fetch or push blocks for as long as the
+/// network takes, and on the main thread that is a frozen window.
 #[tauri::command]
-pub fn worktree_action(
+pub async fn worktree_action(
     session: tauri::State<'_, Session>,
     action: String,
     payload: ActionPayload,
