@@ -4,7 +4,7 @@ async function worktreeAction(action, paths, extra = {}) {
   // Staging one file should not close the file you were reading.
   const open = state.view && state.view.context.kind === "worktree" ? { ...state.view } : null;
   await quiet(withBusy(`Running ${action}…`, async () => {
-    const result = await act(action, { paths, ...extra });
+    const result = await act(action, { ...(paths ? { paths } : {}), ...extra });
     toast("ok", result.message);
     await refresh();
     if (!open) return;
